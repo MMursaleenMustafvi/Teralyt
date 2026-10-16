@@ -1,23 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1a10"><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js"></script><script src="assets/bg.js"></script><script src="assets/iso.js"></script><title>Terralyt · Geospatial Intelligence for Housing Societies</title>
-<style>
-  /* Natural Theme Animations */
-  .float-island { animation: bobbing 6s ease-in-out infinite; transform-origin: center; }
-  .scan-ring { animation: ripple 4s linear infinite; transform-origin: 500px 320px; }
-  .firefly { animation: drift 5s ease-in-out infinite alternate; }
-  @keyframes bobbing {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-15px); }
-  }
-  @keyframes ripple {
-    0% { transform: scale(0.7); opacity: 0.8; stroke-width: 3px; }
-    100% { transform: scale(1.4); opacity: 0; stroke-width: 1px; }
-  }
-  @keyframes drift {
-    0% { transform: translate(0, 0) scale(1); opacity: 0.4; }
-    100% { transform: translate(-20px, -40px) scale(1.5); opacity: 1; }
-  }
-</style>
-</head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1a10"><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js"></script><script src="assets/bg.js"></script><script src="assets/iso.js"></script><title>Terralyt · Geospatial Intelligence for Housing Societies</title></head><body>
 <div class="nav fx"><a class="brand" href="#hero"><script>document.write(LOGO)</script>Terralyt</a><div class="l"><a href="#features">Features</a><a href="#search">Search</a><a href="#forecast">Forecast</a><a href="#map3d">3D Map</a></div><div id="au"></div></div>
 <nav class="dots"><a href="#hero" class="on"><span>Home</span></a><a href="#features"><span>Features</span></a><a href="#search"><span>Search</span></a><a href="#forecast"><span>Forecast</span></a><a href="#map3d"><span>3D Map</span></a><a href="#start"><span>Get started</span></a></nav>
 
@@ -28,74 +9,8 @@
 <div class="hs rv" style="--i:3"><svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div class="sw"><input id="hq" placeholder="Search plot, block or coordinates…" autocomplete="off"></div><a class="btn" href="search.html">Search</a></div>
 <div class="cta2 rv" style="--i:4"><a class="btn w" href="map.html">Explore the 3D map</a><a class="btn gh" href="#forecast">See a forecast</a></div>
 <div class="kp rv" style="--i:5"><div><b><span data-n="60">60</span></b><span>Plots mapped</span></div><div><b><span data-n="7">7</span> yrs</b><span>Satellite history</span></div><div><b><span data-n="5">5</span> yrs</b><span>Forecast</span></div></div></div>
-
 <div class="v3 rv" style="--i:2"><svg id="h3" class="bob"></svg>
-<!-- Beautiful "Mati & Darakht" (Soil & Trees) Floating Island Animation -->
-<svg class="orb" viewBox="0 0 1000 620">
-  <defs>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
-    <linearGradient id="soil-grad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5a3d2b" />
-      <stop offset="100%" stop-color="#2d1c11" />
-    </linearGradient>
-  </defs>
-
-  <g class="float-island">
-    <!-- Deep Soil (Mati) Layers -->
-    <path d="M 500 480 L 800 320 L 500 520 L 200 320 Z" fill="url(#soil-grad)" />
-    <path d="M 200 320 L 500 480 L 500 520 L 200 360 Z" fill="#4e342e" />
-    <path d="M 800 320 L 500 480 L 500 520 L 800 360 Z" fill="#3e2723" />
-    
-    <!-- Top Grass Layer (Zameen) -->
-    <path d="M 500 160 L 800 320 L 500 480 L 200 320 Z" fill="#2d6a4f" stroke="#40916c" stroke-width="3"/>
-    <path d="M 400 220 L 680 320 L 500 420 L 280 320 Z" fill="#40916c" opacity="0.5"/>
-
-    <!-- Tech/Geo-spatial glowing rings on the grass -->
-    <ellipse cx="500" cy="320" rx="180" ry="90" fill="none" stroke="#7bd08b" stroke-dasharray="8 8" class="scan-ring" />
-    <ellipse cx="500" cy="320" rx="100" ry="50" fill="none" stroke="#e3cfa5" opacity="0.4" />
-
-    <!-- Tree 1 (Darakht - Right side) -->
-    <g transform="translate(620, 260)">
-       <!-- Trunk -->
-       <rect x="-4" y="0" width="8" height="40" fill="#5d4037" />
-       <path d="M -8 40 L 8 40 L 4 0 L -4 0 Z" fill="#4e342e" />
-       <!-- Canopy -->
-       <circle cx="0" cy="-10" r="35" fill="#1b4332" />
-       <circle cx="-15" cy="-25" r="25" fill="#2d6a4f" />
-       <circle cx="20" cy="-20" r="20" fill="#40916c" />
-       <circle cx="0" cy="-40" r="15" fill="#52b788" />
-    </g>
-
-    <!-- Tree 2 (Darakht - Left side) -->
-    <g transform="translate(350, 310) scale(0.85)">
-       <!-- Trunk -->
-       <rect x="-5" y="0" width="10" height="45" fill="#4e342e" />
-       <!-- Pine style canopy -->
-       <path d="M -35 15 L 0 -35 L 35 15 Z" fill="#1b4332" />
-       <path d="M -30 -5 L 0 -45 L 30 -5 Z" fill="#2d6a4f" />
-       <path d="M -20 -25 L 0 -60 L 20 -25 Z" fill="#40916c" />
-    </g>
-
-    <!-- Tree 3 (Darakht - Top Back) -->
-    <g transform="translate(480, 190) scale(0.6)">
-       <rect x="-4" y="0" width="8" height="50" fill="#3e2723" />
-       <circle cx="0" cy="-10" r="30" fill="#2d6a4f" />
-       <circle cx="-20" cy="-20" r="25" fill="#40916c" />
-       <circle cx="15" cy="-25" r="20" fill="#52b788" />
-    </g>
-  </g>
-
-  <!-- Glowing Nature Particles (Fireflies / Geo-data points) -->
-  <circle cx="280" cy="220" r="4" fill="#7bd08b" filter="url(#glow)" class="firefly" style="animation-delay: 0s;" />
-  <circle cx="680" cy="180" r="5" fill="#e3cfa5" filter="url(#glow)" class="firefly" style="animation-delay: 1.2s;" />
-  <circle cx="420" cy="420" r="3.5" fill="#52b788" filter="url(#glow)" class="firefly" style="animation-delay: 2.5s;" />
-  <circle cx="600" cy="400" r="4.5" fill="#7bd08b" filter="url(#glow)" class="firefly" style="animation-delay: 0.8s;" />
-  <circle cx="500" cy="120" r="3" fill="#e3cfa5" filter="url(#glow)" class="firefly" style="animation-delay: 1.7s;" />
-</svg>
-
+<svg class="orb" viewBox="0 0 1000 620"><g transform="rotate(-14 500 320)"><ellipse cx="500" cy="320" rx="440" ry="150" fill="none" stroke="rgba(227,207,165,.35)" stroke-dasharray="3 9"/><g><rect x="-9" y="-5" width="18" height="10" rx="2" fill="#e3cfa5"/><rect x="-30" y="-3" width="18" height="6" fill="#3a8a55"/><rect x="12" y="-3" width="18" height="6" fill="#3a8a55"/><path d="M0 5L-26 60L26 60z" fill="rgba(123,208,139,.2)"/><animateMotion dur="14s" repeatCount="indefinite" path="M60,320 a440,150 0 1,0 880,0 a440,150 0 1,0 -880,0"/></g></g></svg>
 <div class="fc" style="left:14px;top:16px"><img src="assets/globe.png" alt=""><div><b>FDA Society</b>Rated High development</div></div><div class="fc" style="right:14px;bottom:16px;animation-delay:-2s"><div><b>2031 forecast</b>Model estimate · not a guarantee</div></div></div></div>
 <a class="cue" href="#features">Scroll<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></a></section>
 
