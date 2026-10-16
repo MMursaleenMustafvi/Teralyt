@@ -8,13 +8,15 @@
   /* ---- easy knobs ---- */
   var CFG = {
     wind: 1,        // 0 = calm, 1 = natural, 2 = stormy
-    leaves: 16,     // falling leaves
-    fireflies: 22,  // warm glowing pollen / fireflies
+    leaves: 26,     // falling leaves
+    fireflies: 36,  // warm glowing pollen / fireflies (whole screen)
+    birds: 7,       // birds crossing the sky
+    respectReducedMotion: false, // true = static if the OS has animations turned off
     rays: true,     // sunlight shafts from top-right
     grass: true     // swaying grass on the front soil
   };
 
-  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var reduce = CFG.respectReducedMotion && window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   var MAXD = 6;
 
   function rng(seed) {
@@ -43,7 +45,7 @@
     var ctx = cv.getContext('2d');
 
     var W = 0, H = 0, dpr = 1, prog = 0, progT = 0;
-    var baseGrad, sunGlow, leaves = [], flies = [], specks = [], blades = [];
+    var baseGrad, sunGlow, leaves = [], flies = [], birds = [], specks = [], blades = [];
 
     function sprite(w, h, stops) {
       var c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -95,21 +97,21 @@
       if (!leaves.length) {
         var r3 = rng(21);
         for (var j = 0; j < CFG.leaves; j++) leaves.push({
-          x: r3() * W, y: r3() * H, s: 5 + r3() * 6, vy: 14 + r3() * 18,
+          x: r3() * W, y: r3() * H, s: 5 + r3() * 6, vy: 24 + r3() * 26,
           ph: r3() * 6.28, rot: r3() * 6.28, vr: (.4 + r3() * .9) * (r3() < .5 ? -1 : 1),
           c: LEAF_COL[Math.floor(r3() * LEAF_COL.length)], a: .5 + r3() * .3
         });
         var r4 = rng(55);
         for (var q = 0; q < CFG.fireflies; q++) flies.push({
-          x: r4(), y: .5 + r4() * .42, ax: 20 + r4() * 50, ay: 10 + r4() * 30,
-          fx: .1 + r4() * .25, fy: .1 + r4() * .25, ph: r4() * 6.28, s: 6 + r4() * 8
+          x: r4(), y: .12 + r4() * .8, ax: 30 + r4() * 70, ay: 20 + r4() * 50,
+          fx: .2 + r4() * .35, fy: .2 + r4() * .35, ph: r4() * 6.28, s: 6 + r4() * 8
         });
       }
     }
 
     function branch(x, y, len, a, d, seed, t, L, idx, w) {
-      var sway = Math.sin(t * .9 * CFG.wind + seed + d * .55) * .0132 * (d + 1) * CFG.wind +
-                 Math.sin(t * .37 + seed * 2) * .003 * (d + 1) * CFG.wind;
+      var sway = Math.sin(t * .9 * CFG.wind + seed + d * .55) * .024 * (d + 1) * CFG.wind +
+                 Math.sin(t * .37 + seed * 2) * .007 * (d + 1) * CFG.wind;
       a += sway;
       var x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
       ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
@@ -144,9 +146,9 @@
     }
 
     function drawMist(t, k) {
-      ctx.globalAlpha = .14;
+      ctx.globalAlpha = .24;
       for (var i = 0; i < 2; i++) {
-        var span = W * 1.6, x = ((t * (7 + k * 4 + i * 3) + i * span * .5 + k * 300) % span) - W * .3;
+        var span = W * 1.6, x = ((t * (18 + k * 8 + i * 6) + i * span * .5 + k * 300) % span) - W * .3;
         ctx.drawImage(mist, x, H * (.68 + k * .07 + i * .04), W * .7, H * .2);
       }
       ctx.globalAlpha = 1;
@@ -200,6 +202,26 @@
       }
     }
 
+    function drawBirds(t, dt) {
+      if (!birds.length) {
+        for (var i = 0; i < CFG.birds; i++) birds.push({
+          x: -Math.random() * W * 1.6, y: H * (.08 + Math.random() * .28),
+          v: 50 + Math.random() * 35, s: 6 + Math.random() * 4, ph: Math.random() * 6.28
+        });
+      }
+      ctx.strokeStyle = 'rgba(227,207,165,.55)'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      birds.forEach(function (b) {
+        b.x += b.v * dt;
+        if (b.x > W + 40) { b.x = -60 - Math.random() * W * .8; b.y = H * (.08 + Math.random() * .28); }
+        var y = b.y + Math.sin(t * .7 + b.ph) * 10, fl = Math.sin(t * 6 + b.ph) * b.s * .8, s = b.s;
+        ctx.beginPath();
+        ctx.moveTo(b.x - s * 1.5, y - fl);
+        ctx.quadraticCurveTo(b.x - s * .6, y - s * .5, b.x, y);
+        ctx.quadraticCurveTo(b.x + s * .6, y - s * .5, b.x + s * 1.5, y - fl);
+        ctx.stroke();
+      });
+    }
+
     function drawFlies(t) {
       ctx.globalCompositeOperation = 'lighter';
       flies.forEach(function (f) {
@@ -216,7 +238,7 @@
     function drawLeaves(t, dt) {
       leaves.forEach(function (l) {
         l.y += l.vy * dt;
-        l.x += (Math.sin(t * .8 + l.ph) * 22 + 8 * CFG.wind) * dt;
+        l.x += (Math.sin(t * 1.0 + l.ph) * 34 + 16 * CFG.wind) * dt;
         l.rot += l.vr * dt;
         if (l.y > H + 20) { l.y = -20; l.x = Math.random() * W; }
         if (l.x > W + 30) l.x = -30;
@@ -242,6 +264,7 @@
       ctx.fillStyle = baseGrad; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = sunGlow; ctx.fillRect(0, 0, W, H);
       if (CFG.rays) drawRays(t);
+      drawBirds(t, dt);
       drawLayer(LDEF[0], t); drawMist(t, 0);
       drawLayer(LDEF[1], t); drawMist(t, 1);
       drawFlies(t);
