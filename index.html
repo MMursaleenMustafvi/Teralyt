@@ -1,0 +1,160 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1a10"><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js"></script><script src="assets/bg.js"></script><script src="assets/iso.js"></script><title>Terralyt · Geospatial Intelligence for Housing Societies</title>
+<style>
+  /* Natural Theme Animations */
+  .float-island { animation: bobbing 6s ease-in-out infinite; transform-origin: center; }
+  .scan-ring { animation: ripple 4s linear infinite; transform-origin: 500px 320px; }
+  .firefly { animation: drift 5s ease-in-out infinite alternate; }
+  @keyframes bobbing {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-15px); }
+  }
+  @keyframes ripple {
+    0% { transform: scale(0.7); opacity: 0.8; stroke-width: 3px; }
+    100% { transform: scale(1.4); opacity: 0; stroke-width: 1px; }
+  }
+  @keyframes drift {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+    100% { transform: translate(-20px, -40px) scale(1.5); opacity: 1; }
+  }
+</style>
+</head><body>
+<div class="nav fx"><a class="brand" href="#hero"><script>document.write(LOGO)</script>Terralyt</a><div class="l"><a href="#features">Features</a><a href="#search">Search</a><a href="#forecast">Forecast</a><a href="#map3d">3D Map</a></div><div id="au"></div></div>
+<nav class="dots"><a href="#hero" class="on"><span>Home</span></a><a href="#features"><span>Features</span></a><a href="#search"><span>Search</span></a><a href="#forecast"><span>Forecast</span></a><a href="#map3d"><span>3D Map</span></a><a href="#start"><span>Get started</span></a></nav>
+
+<section class="sc" id="hero"><div class="hg"><div>
+<span class="tag rv"><i></i>Pilot live in FDA Society</span>
+<h1 class="rv" style="--i:1">Know a society <em>before</em> you ever visit it.</h1>
+<p class="rv" style="--i:2">Satellite data, a 3D map and an honest 5-year forecast, so buyers and overseas Pakistanis can judge a housing society from anywhere.</p>
+<div class="hs rv" style="--i:3"><svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div class="sw"><input id="hq" placeholder="Search plot, block or coordinates…" autocomplete="off"></div><a class="btn" href="search.html">Search</a></div>
+<div class="cta2 rv" style="--i:4"><a class="btn w" href="map.html">Explore the 3D map</a><a class="btn gh" href="#forecast">See a forecast</a></div>
+<div class="kp rv" style="--i:5"><div><b><span data-n="60">60</span></b><span>Plots mapped</span></div><div><b><span data-n="7">7</span> yrs</b><span>Satellite history</span></div><div><b><span data-n="5">5</span> yrs</b><span>Forecast</span></div></div></div>
+
+<div class="v3 rv" style="--i:2"><svg id="h3" class="bob"></svg>
+<!-- Beautiful "Mati & Darakht" (Soil & Trees) Floating Island Animation -->
+<svg class="orb" viewBox="0 0 1000 620">
+  <defs>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <linearGradient id="soil-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a3d2b" />
+      <stop offset="100%" stop-color="#2d1c11" />
+    </linearGradient>
+  </defs>
+
+  <g class="float-island">
+    <!-- Deep Soil (Mati) Layers -->
+    <path d="M 500 480 L 800 320 L 500 520 L 200 320 Z" fill="url(#soil-grad)" />
+    <path d="M 200 320 L 500 480 L 500 520 L 200 360 Z" fill="#4e342e" />
+    <path d="M 800 320 L 500 480 L 500 520 L 800 360 Z" fill="#3e2723" />
+    
+    <!-- Top Grass Layer (Zameen) -->
+    <path d="M 500 160 L 800 320 L 500 480 L 200 320 Z" fill="#2d6a4f" stroke="#40916c" stroke-width="3"/>
+    <path d="M 400 220 L 680 320 L 500 420 L 280 320 Z" fill="#40916c" opacity="0.5"/>
+
+    <!-- Tech/Geo-spatial glowing rings on the grass -->
+    <ellipse cx="500" cy="320" rx="180" ry="90" fill="none" stroke="#7bd08b" stroke-dasharray="8 8" class="scan-ring" />
+    <ellipse cx="500" cy="320" rx="100" ry="50" fill="none" stroke="#e3cfa5" opacity="0.4" />
+
+    <!-- Tree 1 (Darakht - Right side) -->
+    <g transform="translate(620, 260)">
+       <!-- Trunk -->
+       <rect x="-4" y="0" width="8" height="40" fill="#5d4037" />
+       <path d="M -8 40 L 8 40 L 4 0 L -4 0 Z" fill="#4e342e" />
+       <!-- Canopy -->
+       <circle cx="0" cy="-10" r="35" fill="#1b4332" />
+       <circle cx="-15" cy="-25" r="25" fill="#2d6a4f" />
+       <circle cx="20" cy="-20" r="20" fill="#40916c" />
+       <circle cx="0" cy="-40" r="15" fill="#52b788" />
+    </g>
+
+    <!-- Tree 2 (Darakht - Left side) -->
+    <g transform="translate(350, 310) scale(0.85)">
+       <!-- Trunk -->
+       <rect x="-5" y="0" width="10" height="45" fill="#4e342e" />
+       <!-- Pine style canopy -->
+       <path d="M -35 15 L 0 -35 L 35 15 Z" fill="#1b4332" />
+       <path d="M -30 -5 L 0 -45 L 30 -5 Z" fill="#2d6a4f" />
+       <path d="M -20 -25 L 0 -60 L 20 -25 Z" fill="#40916c" />
+    </g>
+
+    <!-- Tree 3 (Darakht - Top Back) -->
+    <g transform="translate(480, 190) scale(0.6)">
+       <rect x="-4" y="0" width="8" height="50" fill="#3e2723" />
+       <circle cx="0" cy="-10" r="30" fill="#2d6a4f" />
+       <circle cx="-20" cy="-20" r="25" fill="#40916c" />
+       <circle cx="15" cy="-25" r="20" fill="#52b788" />
+    </g>
+  </g>
+
+  <!-- Glowing Nature Particles (Fireflies / Geo-data points) -->
+  <circle cx="280" cy="220" r="4" fill="#7bd08b" filter="url(#glow)" class="firefly" style="animation-delay: 0s;" />
+  <circle cx="680" cy="180" r="5" fill="#e3cfa5" filter="url(#glow)" class="firefly" style="animation-delay: 1.2s;" />
+  <circle cx="420" cy="420" r="3.5" fill="#52b788" filter="url(#glow)" class="firefly" style="animation-delay: 2.5s;" />
+  <circle cx="600" cy="400" r="4.5" fill="#7bd08b" filter="url(#glow)" class="firefly" style="animation-delay: 0.8s;" />
+  <circle cx="500" cy="120" r="3" fill="#e3cfa5" filter="url(#glow)" class="firefly" style="animation-delay: 1.7s;" />
+</svg>
+
+<div class="fc" style="left:14px;top:16px"><img src="assets/globe.png" alt=""><div><b>FDA Society</b>Rated High development</div></div><div class="fc" style="right:14px;bottom:16px;animation-delay:-2s"><div><b>2031 forecast</b>Model estimate · not a guarantee</div></div></div></div>
+<a class="cue" href="#features">Scroll<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></a></section>
+
+<section class="sc" id="features"><div class="fgrid"><div><span class="tag rv"><i></i>Features</span><h2 class="rv" style="--i:1">Everything to judge a society remotely</h2><p class="lead rv" style="--i:2">Evidence from satellites, shown on a map you can actually move around in.</p><div class="globe rv" style="--i:3"><img src="assets/globe.png" alt="Satellite view of a planned society"><i></i><i></i></div></div>
+<div class="fcards">
+<div class="card fcd rv" style="--i:2"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></div><h3>Smart search</h3><p class="mut">By name, plot number or coordinates, with live suggestions.</p></div>
+<div class="card fcd rv" style="--i:3"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg></div><h3>Animated 3D map</h3><p class="mut">Rotate, tilt, zoom and switch layers in one click.</p></div>
+<div class="card fcd rv" style="--i:4"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 20h18M6 16V9M11 16V5M16 16v-5M21 16V8"/></svg></div><h3>Development rating</h3><p class="mut">Low, Medium or High from built-up %, vegetation and roads.</p></div>
+<div class="card fcd rv" style="--i:5"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg></div><h3>Trends and forecast</h3><p class="mut">Past change plus a 5-year estimate with an uncertainty range.</p></div>
+<div class="card fcd rv" style="--i:6"><div class="ic"><svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div><h3>Status with proof</h3><p class="mut">Available, Reserved or Sold, with source and confidence.</p></div>
+<div class="card fcd rv" style="--i:7"><div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg></div><h3>Verified data</h3><p class="mut">Admins verify every dataset, and every change is logged.</p></div>
+</div></div></section>
+
+<section class="sc" id="search"><div class="two"><div><span class="tag rv"><i></i>Search</span><h2 class="rv" style="--i:1">Find any society or plot in seconds</h2><p class="lead rv" style="--i:2">Type a name, a plot number or coordinates. Partial matches work, and suggestions appear as you type.</p>
+<div class="hs big rv" style="--i:3"><svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><div class="sw"><input id="sq" placeholder="Try P-012, Block A or 31.4120, 73.0900" autocomplete="off"></div><a class="btn" href="search.html">Search</a></div>
+<div class="chips rv" style="--i:4"><button>FDA Society</button><button>Block A</button><button>P-012</button><button>31.4120, 73.0900</button></div></div>
+<div class="rv" style="--i:3"><div class="card pcard" id="pc"></div></div></div></section>
+
+<section class="sc" id="forecast"><div class="two"><div><span class="tag rv"><i></i>Trends & forecast</span><h2 class="rv" style="--i:1">See where it has been, and where it may go</h2><p class="lead rv" style="--i:2">Satellite history since 2019 and a 5-year projection. Every forecast is a model estimate with an uncertainty range, never a guarantee.</p>
+<div class="tools rv" id="ftabs" style="--i:3"><button class="btn act">Built-up %</button><button class="btn o">NDVI</button><button class="btn o">NDBI</button></div>
+<div class="fst rv" style="--i:4"><div><b id="fobs"></b><span>Observed 2025</span></div><div><b id="fest"></b><span>Estimate 2030</span></div><div><b id="fpm"></b><span>Uncertainty</span></div></div></div>
+<div class="card rv" style="--i:3"><div class="fcw"><svg id="fsvg" viewBox="0 0 700 310"></svg></div></div></div></section>
+
+<section class="sc" id="map3d"><div class="two3"><div><span class="tag rv"><i></i>3D map</span><h2 class="rv" style="--i:1">Walk the society in 3D</h2><p class="lead rv" style="--i:2">Drag to rotate, scroll to zoom, click a plot. Tall means built, flat means vacant.</p>
+<div class="tools rv" id="lb" style="--i:3"><button class="btn act" data-l="cls">Development</button><button class="btn o" data-l="stat">Status</button><button class="btn o" data-l="sat">Satellite</button></div>
+<div class="card rv" id="pi" style="--i:4"><h3>Select a plot</h3><p class="mut" style="margin:0">Click any plot on the map to see its status, source and rating.</p></div></div>
+<div class="v3 m rv" style="--i:2"><svg id="map3"></svg></div></div></section>
+
+<section class="sc last" id="start"><div class="mid"><img class="f rv" src="assets/logo-full.png" alt="Terralyt"><h2 class="rv" style="--i:1">See FDA Society in 3D</h2><p class="lead rv" style="--i:2;text-align:center">Forecasts are model estimates, never guarantees. Plot status always shows its source.</p><div class="cta2 rv" style="--i:3"><a class="btn w" href="map.html">Open the full map</a><a class="btn gh" href="signup.html">Create an account</a></div></div>
+<script>document.write(FOOT(1))</script></section>
+
+<script>
+au.innerHTML=authBtns();Suggest(hq);Suggest(sq);
+const mq=matchMedia('(min-width:901px) and (min-height:561px)'),sn=()=>document.documentElement.classList.toggle('snap',mq.matches);sn();mq.addEventListener('change',sn);
+const H3=Iso(h3,{auto:true,tilt:.5});
+function cnt(){document.querySelectorAll('[data-n]').forEach(e=>{const n=+e.dataset.n,s=performance.now();(function f(t){const k=Math.min(1,(t-s)/1400);e.textContent=Math.round(n*(1-Math.pow(1-k,3)));if(k<1)requestAnimationFrame(f)})(s)})}
+document.querySelectorAll('.chips button').forEach(b=>b.onclick=()=>{sq.value=b.textContent;sq.focus();sq.dispatchEvent(new Event('input'))});
+/* search preview card */
+const cyc=[12,5,33,47,28];let ci=0;
+function showPlot(){const p=PLOTS[cyc[ci%cyc.length]-1];pc.innerHTML=`<div class="swp"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><div><div class="mut">${p.blk} · ${p.area}</div><h3 style="font-size:clamp(24px,4.6vh,34px)">${p.no}</h3></div>${badge(p.cls)}</div>
+<div class="kv"><span>Sale status</span>${badge(p.st)}</div><div class="kv"><span>Source</span><b>${p.st=='Unknown'?'Not recorded':p.src}</b></div><div class="kv"><span>Confidence</span><b>${p.conf}</b></div><div class="kv"><span>Coordinates</span><b>${p.lat}, ${p.lng}</b></div>
+<p style="margin:14px 0 0"><a class="btn" href="plot.html?id=${p.id}">Open plot details</a></p></div>`}
+showPlot();setInterval(()=>{ci++;showPlot()},3600);
+/* forecast chart */
+const D=[[18,24,31,38,44,51,57],[.52,.47,.41,.36,.31,.28,.25],[.05,.1,.16,.2,.26,.3,.33]];let cur=0;
+function fcDraw(k){cur=k;const h=D[k],sl=(h[6]-h[0])/6,f=[1,2,3,4,5].map(i=>h[6]+sl*i*.8),mn=Math.min(...h,...f)*.8,mx=Math.max(...h,...f)*1.15,sp=Math.abs(mx-mn)*.03,X=i=>50+i*(600/11),Y=v=>260-(v-mn)/(mx-mn)*220,fmt=v=>k?v.toFixed(2):Math.round(v)+'%';
+let up='',lo='';f.forEach((v,i)=>{up+=X(7+i)+','+Y(v+sp*(i+1))+' ';lo=X(7+i)+','+Y(v-sp*(i+1))+' '+lo});const hp=h.map((v,i)=>X(i)+','+Y(v)).join(' ');
+fsvg.innerHTML=`<defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6cc27f" stop-opacity=".35"/><stop offset="1" stop-color="#6cc27f" stop-opacity="0"/></linearGradient></defs>`+[0,1,2,3].map(i=>`<line x1="50" x2="650" y1="${40+i*73}" y2="${40+i*73}" stroke="rgba(227,207,165,.1)"/>`).join('')+
+`<polygon class="fa" points="${hp} ${X(6)},260 ${X(0)},260" fill="url(#ga)"/><polygon class="fb2" points="${up}${lo}" fill="#e0a93a"/><polyline class="ln" pathLength="1" fill="none" stroke="#7bd08b" stroke-width="4" stroke-linejoin="round" stroke-linecap="round" points="${hp}"/><polyline class="fd" fill="none" stroke="#e0a93a" stroke-width="4" stroke-dasharray="7 7" points="${X(6)},${Y(h[6])} ${f.map((v,i)=>X(7+i)+','+Y(v)).join(' ')}"/>`+
+h.map((v,i)=>`<circle class="dt" style="animation-delay:${i*.22}s" cx="${X(i)}" cy="${Y(v)}" r="5" fill="#14240f" stroke="#7bd08b" stroke-width="2.5"/>`).join('')+[...h,...f].map((v,i)=>`<text x="${X(i)}" y="290" font-size="12" text-anchor="middle" fill="#b3a283">${2019+i}</text>`).join('')+
+`<line x1="${X(6.5)}" x2="${X(6.5)}" y1="26" y2="260" stroke="rgba(227,207,165,.3)" stroke-dasharray="3 6"/><text x="${X(6.7)}" y="40" font-size="12" fill="#e0a93a">Forecast (estimate)</text>`;
+fobs.textContent=fmt(h[6]);fest.textContent=fmt(f[4]);fpm.textContent='± '+(k?(sp*5).toFixed(2):Math.round(sp*5)+' pts');ftabs.querySelectorAll('button').forEach((b,i)=>b.className='btn '+(i==k?'act':'o'))}
+ftabs.querySelectorAll('button').forEach((b,i)=>b.onclick=()=>fcDraw(i));fcDraw(0);
+/* 3D section */
+const M=Iso(map3,{onpick:pk}),LGD={cls:'High / Medium / Low development',stat:'Available / Reserved / Sold',sat:'Built / vacant tones'};
+function pk(i){M.S.sel=i;M.draw();const p=PLOTS[i-1];pi.innerHTML=`<h3>${p.no} <span class="mut" style="font-weight:500">· ${p.blk}</span></h3><div class="kv"><span>Status</span>${badge(p.st)}</div><div class="kv"><span>Development</span>${badge(p.cls)}</div><div class="kv"><span>Source</span><b>${p.st=='Unknown'?'Not recorded':p.src}</b></div><p style="margin:12px 0 0"><a class="btn" href="plot.html?id=${i}">Full details</a></p>`}
+lb.querySelectorAll('button').forEach(b=>b.onclick=()=>{M.S.layer=b.dataset.l;lb.querySelectorAll('button').forEach(x=>x.className='btn '+(x==b?'act':'o'));M.draw()});
+/* section observer */
+const dots=[...document.querySelectorAll('.dots a')],EN={hero:cnt,forecast:()=>fcDraw(cur),map3d:()=>M.restart()};
+const io=new IntersectionObserver(es=>es.forEach(e=>{const s=e.target;if(e.intersectionRatio>=.4){if(!s.classList.contains('in')){s.classList.add('in');EN[s.id]&&EN[s.id]()}dots.forEach(d=>d.classList.toggle('on',d.getAttribute('href')=='#'+s.id))}else if(e.intersectionRatio<.05)s.classList.remove('in')}),{threshold:[0,.05,.4,.7]});
+document.querySelectorAll('.sc').forEach(s=>io.observe(s));
+</script></body></html>
