@@ -1,4 +1,5 @@
 /* Terralyt · bg.js — "mitti & darakht" living background (lightweight)
+   v2: natural light-blue daytime sky (sun glow, haze, drifting clouds)
    Everything heavy is pre-rendered once; each frame only moves sprites.
    Drop-in replacement for assets/bg.js — self-starting.                  */
 (function () {
@@ -9,6 +10,7 @@
     leaves: 14,     // falling leaves
     fireflies: 24,  // glowing motes / fireflies
     birds: 5,       // birds crossing the sky
+    clouds: 7,      // drifting clouds
     rays: true,     // sunlight shafts
     grass: true,    // swaying grass
     respectReducedMotion: false
@@ -29,10 +31,10 @@
   function gust(t) { return .75 + .25 * Math.sin(t * .31) + .15 * Math.sin(t * .83 + 1.3); }
 
   var LDEF = [
-    { base: .74, amp: .030, f: [1.3, 3.1], par: .020, fill: ['#17382a', '#10261c'], trees: .9, scale: .55, alpha: .6,
-      trunk: '#16281d', kinds: [1, 1, 0], leafD: ['#173b27', '#1b4430'], leafL: ['#2a5c3c', '#2f6644'], sway: .05 },
-    { base: .82, amp: .035, f: [1.0, 2.6], par: .035, fill: ['#14301f', '#0c1c13'], trees: .7, scale: .85, alpha: .85,
-      trunk: '#241d13', kinds: [0, 1, 0], leafD: ['#1a4a2b', '#215733', '#2a5a2a'], leafL: ['#2c6038', '#35704a', '#55782f'], sway: .05 },
+    { base: .74, amp: .030, f: [1.3, 3.1], par: .020, fill: ['#74a898', '#4f8675'], trees: .9, scale: .55, alpha: .75,
+      trunk: '#3b5a4c', kinds: [1, 1, 0], leafD: ['#4a8068', '#4f8a70'], leafL: ['#6fae94', '#7ab99d'], sway: .05 },
+    { base: .82, amp: .035, f: [1.0, 2.6], par: .035, fill: ['#2f7048', '#1c4a30'], trees: .7, scale: .85, alpha: .88,
+      trunk: '#2d2417', kinds: [0, 1, 0], leafD: ['#256b3b', '#2c7a45', '#37702f'], leafL: ['#3f9055', '#4aa163', '#6fa03c'], sway: .05 },
     { base: .915, amp: .025, f: [.8, 2.2], par: .050, fill: ['#3d2917', '#160e07'], trees: .3, scale: 1.0, alpha: .95,
       trunk: '#22170d', kinds: [0, 0, 0], leafD: ['#143a22', '#1a4529', '#27481f'], leafL: ['#2f6a3a', '#387444', '#587a2e'], sway: .05, soil: true }
   ];
@@ -45,10 +47,25 @@
     cv.setAttribute('aria-hidden', 'true');
     cv.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:block';
     document.body.insertBefore(cv, document.body.firstChild);
+
+    /* light sky -> keep cream text readable (shadow only; layout & colours untouched) */
+    var st = document.createElement('style'); st.id = 'terra-sky-style';
+    st.textContent = 'html{background:#9fd0f1}' +
+      '.sc h1,.sc h2,.hg p,.sc .lead,.sc .tag,.pg>h1,.pg>p,.pg>.mut,.kp b,.kp span{text-shadow:0 1px 2px rgba(6,30,56,.6),0 3px 18px rgba(6,30,56,.45)}' +
+      '.hg p,.sc .lead{color:#f6efe0}' +
+      '.pg>p,.pg>.mut{color:#f6efe0}' +
+      '.hg>div:first-child,.two>div:first-child,.two3>div:first-child,.fgrid>div:first-child,.sc.last .mid{position:relative;z-index:2;isolation:isolate}' +
+      '.hg>div:first-child::before,.two>div:first-child::before,.two3>div:first-child::before,.fgrid>div:first-child::before,.sc.last .mid::before{content:"";position:absolute;z-index:-1;inset:-16px -22px;border-radius:28px;background:linear-gradient(135deg,rgba(7,30,54,.5),rgba(7,30,54,.34));-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);pointer-events:none}' +
+      '.sc.last .mid::before{inset:auto;left:50%;top:50%;width:min(700px,92%);height:calc(100% - 30px);transform:translate(-50%,-50%)}' +
+      '@media(max-width:900px){.hg>div:first-child::before,.two>div:first-child::before,.two3>div:first-child::before,.fgrid>div:first-child::before{inset:-12px -12px}}' +
+      '.btn.gh{background:rgba(7,30,54,.5)}' +
+      '.dots a{background:rgba(255,255,255,.6);box-shadow:0 0 0 1px rgba(6,30,56,.25)}.dots a.on{background:#7bd08b}';
+    document.head.appendChild(st);
+    var tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.setAttribute('content', '#74b9ee');
     var ctx = cv.getContext('2d', { alpha: false });
 
     var W = 0, H = 0, dpr = 1, dprMax = 1.25, prog = 0, progT = 0;
-    var bg, beam, glow, mist, leafSpr = [];
+    var bg, beam, glow, mist, leafSpr = [], cloudSpr = [], clouds = [];
     var leaves = [], flies = [], birds = [], blades = [];
 
     /* ---------- sprites ---------- */
@@ -58,9 +75,32 @@
       g.save(); g.scale(1, h / w); g.fillStyle = gr; g.fillRect(0, 0, w, w); g.restore();
       return c;
     }
+    function cloudSprite(seed) {
+      var r = rng(seed), w = 440, h = 180, c = mk(w, h), g = c.getContext('2d'), P = [], n = 12, i, p, gr;
+      for (i = 0; i < n; i++) {
+        var t = i / (n - 1), s = Math.sin(t * Math.PI);
+        P.push([60 + t * (w - 120), h * .64 - s * h * .2 + (r() - .5) * 12, 24 + s * 36 * (.7 + r() * .5) + r() * 10]);
+      }
+      for (i = 0; i < n; i++) {            // soft blue-grey underside
+        p = P[i]; gr = g.createRadialGradient(p[0], p[1] + p[2] * .3, 0, p[0], p[1] + p[2] * .3, p[2]);
+        gr.addColorStop(0, 'rgba(170,198,226,.6)'); gr.addColorStop(1, 'rgba(170,198,226,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(p[0], p[1] + p[2] * .3, p[2], 0, 6.283); g.fill();
+      }
+      for (i = 0; i < n; i++) {            // bright sunlit top
+        p = P[i]; gr = g.createRadialGradient(p[0] - p[2] * .15, p[1] - p[2] * .35, 0, p[0], p[1] - p[2] * .1, p[2]);
+        gr.addColorStop(0, 'rgba(255,255,255,.98)'); gr.addColorStop(.6, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(p[0], p[1] - p[2] * .1, p[2], 0, 6.283); g.fill();
+      }
+      g.globalCompositeOperation = 'destination-out';   // flat, fading base like a real cumulus
+      gr = g.createLinearGradient(0, h * .66, 0, h * .9);
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,1)');
+      g.fillStyle = gr; g.fillRect(0, h * .66, w, h);
+      return c;
+    }
     function makeStatic() {
+      [11, 23, 37].forEach(function (sd) { cloudSpr.push(cloudSprite(sd)); });
       glow = radial(64, 64, [[0, 'rgba(255,226,150,1)'], [.3, 'rgba(255,200,100,.4)'], [1, 'rgba(255,190,80,0)']]);
-      mist = radial(256, 96, [[0, 'rgba(185,220,185,.5)'], [.6, 'rgba(185,220,185,.18)'], [1, 'rgba(185,220,185,0)']]);
+      mist = radial(256, 96, [[0, 'rgba(232,244,238,.55)'], [.6, 'rgba(232,244,238,.2)'], [1, 'rgba(232,244,238,0)']]);
       beam = mk(128, 512);
       var g = beam.getContext('2d');
       if ('filter' in g) g.filter = 'blur(7px)';
@@ -80,18 +120,28 @@
     function bakeBG() {
       var c = mk(W * dpr, H * dpr), g = c.getContext('2d');
       g.scale(dpr, dpr);
-      var gr = g.createLinearGradient(0, 0, 0, H);
-      gr.addColorStop(0, '#06120a'); gr.addColorStop(.45, '#0d2417'); gr.addColorStop(.78, '#17321b'); gr.addColorStop(1, '#202f17');
+      var R = Math.max(W, H), gr;
+      /* natural daytime sky: deeper blue overhead, pale haze at the horizon */
+      gr = g.createLinearGradient(0, 0, 0, H);
+      gr.addColorStop(0, '#4a9be0'); gr.addColorStop(.32, '#74b9ee'); gr.addColorStop(.6, '#a8d9f5');
+      gr.addColorStop(.8, '#d5eefa'); gr.addColorStop(1, '#d3e7d6');
       g.fillStyle = gr; g.fillRect(0, 0, W, H);
-      var R = Math.max(W, H);
-      var s = g.createRadialGradient(W * .85, H * .04, 0, W * .85, H * .04, R * .75);
-      s.addColorStop(0, 'rgba(255,222,150,.14)'); s.addColorStop(1, 'rgba(255,222,150,0)');
-      g.fillStyle = s; g.fillRect(0, 0, W, H);
-      var h = g.createRadialGradient(W * .5, H * .8, 0, W * .5, H * .8, W * .7);
-      h.addColorStop(0, 'rgba(215,170,90,.11)'); h.addColorStop(1, 'rgba(215,170,90,0)');
-      g.fillStyle = h; g.fillRect(0, 0, W, H);
-      var v = g.createRadialGradient(W / 2, H / 2, R * .3, W / 2, H / 2, R * .85);
-      v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.38)');
+      /* sun glow + disc (top right) */
+      var sx = W * .84, sy = H * .1;
+      gr = g.createRadialGradient(sx, sy, 0, sx, sy, R * .6);
+      gr.addColorStop(0, 'rgba(255,252,232,.95)'); gr.addColorStop(.1, 'rgba(255,246,214,.7)');
+      gr.addColorStop(.35, 'rgba(255,240,200,.22)'); gr.addColorStop(1, 'rgba(255,240,200,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      gr = g.createRadialGradient(sx, sy, 0, sx, sy, Math.max(16, H * .035));
+      gr.addColorStop(0, 'rgba(255,255,248,1)'); gr.addColorStop(.7, 'rgba(255,253,235,.95)'); gr.addColorStop(1, 'rgba(255,250,225,0)');
+      g.fillStyle = gr; g.fillRect(sx - 80, sy - 80, 160, 160);
+      /* horizon haze behind the far hills */
+      gr = g.createLinearGradient(0, H * .5, 0, H * .8);
+      gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(.7, 'rgba(255,255,255,.32)'); gr.addColorStop(1, 'rgba(255,255,255,.12)');
+      g.fillStyle = gr; g.fillRect(0, H * .5, W, H * .3);
+      /* soft navy vignette keeps edges calm, text readable */
+      var v = g.createRadialGradient(W / 2, H / 2, R * .35, W / 2, H / 2, R * .9);
+      v.addColorStop(0, 'rgba(8,40,80,0)'); v.addColorStop(1, 'rgba(8,40,80,.22)');
       g.fillStyle = v; g.fillRect(0, 0, W, H);
       return c;
     }
@@ -237,9 +287,15 @@
         });
         var r4 = rng(55), nf = W < 700 ? Math.ceil(CFG.fireflies / 2) : CFG.fireflies;
         for (var q = 0; q < nf; q++) flies.push({
-          x: r4(), y: .15 + r4() * .78, ax: 30 + r4() * 70, ay: 20 + r4() * 50,
+          x: r4(), y: .52 + r4() * .42, ax: 30 + r4() * 70, ay: 20 + r4() * 50,
           fx: .15 + r4() * .3, fy: .15 + r4() * .3, ph: r4() * 6.28, s: 8 + r4() * 12
         });
+        var r5 = rng(77), ncl = W < 700 ? Math.ceil(CFG.clouds / 2) : CFG.clouds;
+        for (var cc = 0; cc < ncl; cc++) {
+          var sc = .5 + r5() * .9;
+          clouds.push({ spr: cloudSpr[cc % cloudSpr.length], s: sc, x: r5() * (W + 500) - 440, y: H * (.03 + r5() * .36),
+                        v: 3 + sc * 6, a: .55 + sc * .3 });
+        }
         for (var b = 0; b < CFG.birds; b++) birds.push({
           x: -Math.random() * W * 1.6, y: H * (.08 + Math.random() * .28),
           v: 50 + Math.random() * 35, s: 6 + Math.random() * 4, ph: Math.random() * 6.28
@@ -257,14 +313,25 @@
         var phi = .28 + i * .16 + Math.sin(t * .15 + i) * .035, w = len * (.2 + .04 * Math.sin(t * .2 + i * 2));
         var cs = Math.cos(phi), sn = Math.sin(phi);
         ctx.setTransform(dpr * cs, dpr * sn, -dpr * sn, dpr * cs, ox * dpr, oy * dpr);
-        ctx.globalAlpha = .1 * (.6 + .4 * Math.sin(t * .3 + i * 1.7));
+        ctx.globalAlpha = .15 * (.6 + .4 * Math.sin(t * .3 + i * 1.7));
         ctx.drawImage(beam, -w / 2, 0, w, len);
       }
       ctx.globalAlpha = 1; base();
     }
 
+    function drawClouds(dt) {
+      for (var i = 0; i < clouds.length; i++) {
+        var c = clouds[i], w = 440 * c.s * (W < 700 ? .7 : 1), h = 180 * c.s * (W < 700 ? .7 : 1);
+        c.x += c.v * dt;
+        if (c.x > W + 20) c.x = -w - 20;
+        ctx.globalAlpha = Math.min(1, c.a);
+        ctx.drawImage(c.spr, c.x, c.y, w, h);
+      }
+      ctx.globalAlpha = 1;
+    }
+
     function drawBirds(t, dt) {
-      ctx.strokeStyle = 'rgba(227,207,165,.55)'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(26,50,76,.72)'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
       ctx.beginPath();
       birds.forEach(function (b) {
         b.x += b.v * dt;
@@ -340,6 +407,7 @@
       var g = gust(t);
       LDEF.forEach(function (L) { L.off = (prog - .5) * L.par * H * 3; });
       ctx.drawImage(bg, 0, 0, W, H);
+      drawClouds(dt);
       if (CFG.rays) drawRays(t);
       drawBirds(t, dt);
       drawLayer(LDEF[0], t, g);
@@ -381,6 +449,7 @@
         leaves.length = Math.ceil(leaves.length / 2);
         flies.length = Math.ceil(flies.length / 2);
         build();
+        frame(T, 0);                // redraw at once so the sky never flashes black
       } else cap30 = true;          // still slow: 30 fps
     }
 
