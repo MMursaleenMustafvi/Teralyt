@@ -1,0 +1,8 @@
+# Cesium ion token and other local secrets
+assets/config.js
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
