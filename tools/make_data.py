@@ -50,11 +50,19 @@ FT = 0.3048
 KANAL = 505.857
 
 SIZES = {"5 Marla": (28 * FT, 50 * FT), "10 Marla": (39 * FT, 70 * FT), "20 Marla": (54 * FT, 100 * FT), "Commercial": (30 * FT, 60 * FT)}
-WIDTH = {"main": 11.0, "arterial": 14.0, "divider": 85 * FT, "collector": 60 * FT, "residential": 40 * FT,
-         "roundabout": 12.0, "highway": 12.0, "planned": 40 * FT}
-SIDEWALK = 2.5
+# Road sizes. ROW = right of way from the official FDA City maps (202, 85, 60 and 40 ft roads);
+# WIDTH = paved carriageway measured on Esri World Imagery (z19, 0.25 m/px) in November 2026:
+#   202 ft boulevard: service road 7.5 | paved strip 6.5 | carriageway 10.75 | planted median 5 | carriageway 10.75 | strip | service
+#   85 ft road: 19 m four-lane carriageway;  60 ft road: 6.5 m;  40 ft street: 5 m
+#   roundabouts: island 60 m across with a 17 m ring road (south-west one: island 46 m, ring 23.5 m)
+WIDTH = {"main": 10.75, "service": 7.5, "arterial": 9.0, "divider": 19.0, "collector": 6.5, "residential": 5.0,
+         "roundabout": 17.0, "highway": 12.0, "planned": 5.0}
+ROW = {"main": 10.75, "service": 9.5, "arterial": 14.0, "divider": 85 * FT, "collector": 60 * FT, "residential": 40 * FT,
+       "roundabout": 17.0, "highway": 30.0, "planned": 40 * FT}
+ROUNDABOUT_ISLAND = {"big": 30.0, "small": 23.0}   # island radius in metres, measured
+SIDEWALK = 0.6
 LANE = 6.0
-NALA_CH, NALA_BANK = 3.4, 8.5
+NALA_CH, NALA_BANK = 3.25, 8.25   # channel about 6.5 m wide (measured), earth banks either side
 
 
 def ll(e, n):
@@ -293,7 +301,7 @@ def main():
             continue
         c = d["line"].interpolate(0.5, normalized=True)
         if main_poly.distance(c) < 32 and parallel_to(d["line"], main_poly):
-            d["cls"] = "main"
+            d["cls"] = "main" if d["e"]["tags"].get("oneway") == "yes" else "service"
         elif sw_poly.distance(c) < 32 and parallel_to(d["line"], sw_poly):
             d["cls"] = "arterial"
         elif any(dv.distance(c) < 16 and parallel_to(d["line"], dv, 0.95) for dv in dividers):
@@ -314,8 +322,22 @@ def main():
     print(f"nalla: {nala.length:.0f} m in the plan area")
 
     # ---- surfaces and faces ---------------------------------------------------------------
-    surf = unary_union([d["line"].buffer(WIDTH[d["cls"]] / 2, join_style=1 if d["cls"] == "roundabout" else 2, mitre_limit=3) for d in roads])
-    surf = surf.buffer(0.3).buffer(-0.3)
+    ring_geo = {}
+    for d in roads:
+        if d["cls"] == "roundabout":
+            pg = Polygon(d["line"].coords) if d["line"].is_ring else d["line"].convex_hull
+            c = pg.centroid
+            rc = sum(Point(q).distance(c) for q in d["line"].coords) / len(d["line"].coords)
+            ri = ROUNDABOUT_ISLAND["big"] if rc > 34 else ROUNDABOUT_ISLAND["small"]
+            ro = ri + (17.0 if rc > 34 else 23.5)
+            ring_geo[id(d)] = (c, ri, ro)
+    def road_poly(d, widths):
+        if d["cls"] == "roundabout":
+            c, ri, ro = ring_geo[id(d)]
+            return c.buffer(ro, 64).difference(c.buffer(ri, 64))
+        return d["line"].buffer(widths[d["cls"]] / 2, join_style=2, mitre_limit=3)
+    surf = unary_union([road_poly(d, ROW) for d in roads]).buffer(0.3).buffer(-0.3)          # right of way
+    carriage = unary_union([road_poly(d, WIDTH) for d in roads]).buffer(0.2).buffer(-0.2)     # paved carriageway
     inner_lines = [d["line"].intersection(env.buffer(30)) for d in roads if d["cls"] != "highway"]
     noded = unary_union([l for l in inner_lines if not l.is_empty] + [LineString(env.exterior.coords), nala])
     faces = [f for f in polygonize(noded) if env.contains(f.representative_point())]
@@ -324,10 +346,11 @@ def main():
     rbs = []
     for d in roads:
         if d["cls"] == "roundabout" and env.buffer(50).contains(d["line"].centroid):
-            pg = Polygon(d["line"].coords) if d["line"].is_ring else d["line"].convex_hull
-            rbs.append({"c": pg.centroid, "poly": pg})
+            c, ri, ro = ring_geo[id(d)]
+            rbs.append({"c": c, "poly": c.buffer(ri + 1, 64), "ri": ri, "ro": ro})
     rb_zone = unary_union([r["poly"].buffer(2) for r in rbs]) if rbs else None
     mains = [d["line"] for d in roads if d["cls"] == "main"]
+    services = [d["line"] for d in roads if d["cls"] == "service"]
 
     zones = [dict(z, poly=plan.poly(z["px"])) for z in feats["zones"]]
     inside_zones = unary_union([z["poly"] for z in zones if not z.get("outside")])
@@ -356,6 +379,7 @@ def main():
         cs = list(mrr.exterior.coords)
         short = min(math.dist(cs[0], cs[1]), math.dist(cs[1], cs[2]))
         touching = sum(1 for m in mains if m.distance(q) < WIDTH["main"] / 2 + 3)
+        touching_srv = sum(1 for m in services if m.distance(q) < ROW["service"] / 2 + 3)
         smp = plan.sample(q)
         plotted = smp["pink"] + smp["green"] + smp["blue"] + smp["other"]
         in_zone = (not inside_zones.is_empty) and q.intersection(inside_zones).area > 0.3 * q.area
@@ -363,6 +387,8 @@ def main():
             kind = "island"
         elif touching >= 2 and short < 45:
             kind = "median"
+        elif touching >= 1 and touching_srv >= 1 and short < 20:
+            kind = "strip"          # paved strip between a boulevard carriageway and its service road
         elif not in_zone and (plotted < 0.42 or smp["bg"] > 0.55):
             kind = "outside"
         elif beyond_f_strip(cen):
@@ -439,7 +465,7 @@ def main():
     designs = ["rings", "tree", "fountain", "rings"]
     rbs.sort(key=lambda r: -r["c"].x)
     for n_, r in enumerate(rbs):
-        isl = r["poly"].buffer(-(WIDTH["roundabout"] / 2 + 0.5))
+        isl = r["c"].buffer(r["ri"], 64)
         if isl.is_empty or isl.area < 20:
             continue
         add_lm(isl, "roundabout", f"Roundabout {n_ + 1}", None, extra={"radius": round(math.sqrt(isl.area / math.pi), 1), "monument": designs[n_ % len(designs)]})
@@ -485,7 +511,7 @@ def main():
     plot_feats = []
     counters = Counter()
     pid = 0
-    corridor = WIDTH["main"] / 2 + 40
+    corridor = 31 + 40     # half of the 202 ft corridor plus one row of commercial plots
     main_u = unary_union(mains) if mains else None
     regions = [p for p in parcels if p["free"] is not None] + extra_free
     regions.sort(key=lambda p: (p["blk"], -p["c"].y, p["c"].x))
@@ -559,7 +585,7 @@ def main():
     print("sizes:", dict(Counter(f["properties"]["size"] for f in plot_feats)))
 
     # ---- society outline ------------------------------------------------------------------------
-    society = [p["land"] for p in P if p["kind"] in ("parcel", "greenbelt", "median", "island")]
+    society = [p["land"] for p in P if p["kind"] in ("parcel", "greenbelt", "median", "island", "strip")]
     outline = largest(unary_union([q.buffer(16, join_style=2) for q in society]).buffer(-13, join_style=2))
     outline = Polygon(outline.exterior).simplify(1.5)
     cen = outline.centroid
@@ -588,7 +614,7 @@ def main():
         if q.area > 5:
             water.append(feature(q.simplify(0.2), dict(nprops, kind="nala_bank")))
     water.append(feature(nala, dict(nprops, kind="nala_line", width_m=round(2 * NALA_CH, 1), length_m=round(nala.length))))
-    sb = surf.buffer(1.5)
+    sb = surf.buffer(1.5)   # no trees on roads
     for side in (-1, 1):
         for q in lines_of(nala.offset_curve(side * (NALA_CH + 3.2))):
             dd = 6.0
@@ -616,13 +642,20 @@ def main():
             if part.length < 5:
                 continue
             t = d["e"]["tags"]
-            name = t.get("name") or {"main": "Main Boulevard (202 ft)", "divider": "85 ft road", "collector": "60 ft road"}.get(d["cls"])
+            name = t.get("name") or {"main": "Main Boulevard (202 ft)", "service": "Main Boulevard service road", "divider": "85 ft road",
+                                     "collector": "60 ft road", "residential": "40 ft street"}.get(d["cls"])
             road_feats.append(feature(part, {"osm_id": d["e"]["id"], "name": name, "class": d["cls"], "width_m": round(WIDTH[d["cls"]], 1),
+                                             "row_m": round(ROW[d["cls"]], 1),
                                              "oneway": t.get("oneway") == "yes", "source": "OpenStreetMap", "accuracy": "georeferenced"}))
     write(out, "roads", road_feats)
-    inner_surf = unary_union([surf.intersection(outline.buffer(1.0))] + planned_streets)
-    write(out, "road_surface", [feature(q.simplify(0.25), {"kind": "carriageway", "accuracy": "approximate"}) for q in polys(inner_surf) if q.area > 20])
-    outer = surf.intersection(outline.buffer(700)).difference(outline.buffer(-0.5))
+    planned_carriage = [q.buffer(-(ROW["planned"] - WIDTH["planned"]) / 2, join_style=2) for q in planned_streets]
+    inner_carriage = unary_union([carriage.intersection(outline.buffer(1.0))] + planned_carriage)
+    inner_row = unary_union([surf.intersection(outline.buffer(1.0))] + planned_streets)
+    verge = inner_row.difference(inner_carriage.buffer(0.05))
+    write(out, "road_surface",
+          [feature(q.simplify(0.25), {"kind": "carriageway", "accuracy": "approximate", "source": "widths measured on satellite imagery"}) for q in polys(inner_carriage) if q.area > 20]
+          + [feature(q.simplify(0.25), {"kind": "verge", "accuracy": "approximate"}) for q in polys(verge) if q.area > 8])
+    outer = carriage.intersection(outline.buffer(700)).difference(outline.buffer(-0.5))
     write(out, "outer_roads", [feature(q.simplify(0.3), {"kind": "road", "accuracy": "approximate"}) for q in polys(outer) if q.area > 20])
     land_feats = []
     for p in P:
@@ -670,7 +703,7 @@ def preview(path, outline, P, landmarks, plot_feats, road_feats, nala, plan):
             ax.annotate(pr["name"].replace(" (", "\n("), (pg.centroid.x, pg.centroid.y), fontsize=5, ha="center", va="center", zorder=6)
     for f in road_feats:
         cs = [xy(*c) for c in f["geometry"]["coordinates"]]
-        lw = {"main": 2.4, "divider": 2.0, "collector": 1.4, "arterial": 1.6, "highway": 2.6, "roundabout": 1.5}.get(f["properties"]["class"], 0.4)
+        lw = {"main": 2.4, "service": 1.4, "divider": 2.0, "collector": 1.4, "arterial": 1.6, "highway": 2.6, "roundabout": 1.5}.get(f["properties"]["class"], 0.4)
         ax.plot([c[0] for c in cs], [c[1] for c in cs], color="#333", lw=lw, zorder=5)
     ax.plot(*nala.xy, color="#1f78d0", lw=2.5, zorder=6)
     ax.plot(*outline.exterior.xy, color="red", lw=1.5, zorder=7)
