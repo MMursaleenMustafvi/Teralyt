@@ -27,8 +27,8 @@ const COLORS = {
   stat: { Available: '#34c38f', Reserved: '#e0a93a', Sold: '#c9573f', Unknown: '#9aa5a0' },
   sat: { built: '#9c8a72', vacant: '#ddd2b2' }
 };
-const KIND_LABEL = { mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
-const KIND_COLOR = { mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
+const KIND_LABEL = { nala: 'Storm drain (nalla)', mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
+const KIND_COLOR = { nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
 
 export function Society3D(el, opts = {}) {
   opts = Object.assign({ dataUrl: 'data/', layer: 'cls', onPick: null, onHover: null, onStatus: null }, opts);
@@ -160,7 +160,7 @@ export function Society3D(el, opts = {}) {
   async function build() {
     status('loading', 'Loading map data…');
     const get = n => fetch(opts.dataUrl + n + '.geojson', { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(n + '.geojson: HTTP ' + r.status); return r.json(); });
-    const [boundary, roads, surface, outer, land, landmarks, plots] = await Promise.all(['boundary', 'roads', 'road_surface', 'outer_roads', 'blocks', 'landmarks', 'plots'].map(get));
+    const [boundary, roads, surface, outer, land, landmarks, plots, water] = await Promise.all(['boundary', 'roads', 'road_surface', 'outer_roads', 'blocks', 'landmarks', 'plots', 'water'].map(n => get(n).catch(e => { if (n === 'water') return { features: [] }; throw e; })));
     const bp = boundary.features[0].properties;
     LON0 = bp.centre_lon; LAT0 = bp.centre_lat;
     axisRad = (bp.axis_deg || 0) * PI / 180;
@@ -176,8 +176,16 @@ export function Society3D(el, opts = {}) {
     layers.stylised.push(addMesh(flatGeom(outer.features, Y.road - .01), M.asphalt));
     layers.stylised.push(addMesh(flatGeom(surface.features, Y.road), M.asphalt));
     const isLand = f => f.properties.layer === 'land', isInner = f => f.properties.layer === 'inner';
-    layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.curb - Y.road, f => isLand(f) && f.properties.kind === 'parcel'), M.sidewalk));
+    const parcelLike = f => f.properties.kind === 'parcel' || f.properties.kind === 'greenbelt';
+    layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.curb - Y.road, f => isLand(f) && parcelLike(f)), M.sidewalk));
     layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn, f => isInner(f) && f.properties.kind === 'parcel'), M.grass));
+    layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn + .004, f => isInner(f) && f.properties.kind === 'greenbelt'), M.lawn));
+    for (const f of land.features) if (isInner(f) && f.properties.kind === 'greenbelt') for (const rings of polysOf(f.geometry)) {
+      const r = ringPlan(rings[0]); let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+      for (const [x, y] of r) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); miny = Math.min(miny, y); maxy = Math.max(maxy, y); }
+      for (let x = minx + 4; x < maxx; x += 9) for (let y = miny + 4; y < maxy; y += 9) if (pipPlan(x, y, r)) trees[(Math.round(x + y) % 3) ? 'round' : 'cone'].push([x, Y.lawn, -y, .9]);
+    }
+    buildNala(water.features);
     layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.median - Y.road, f => isLand(f) && f.properties.kind === 'median'), M.concrete, { cast: true }));
     layers.stylised.push(addMesh(flatGeom(land.features, Y.median + .005, f => isLand(f) && f.properties.kind === 'median'), M.lawn));
     layers.stylised.push(addMesh(flatGeom(boundary.features, -.12), M.dirt));
@@ -203,6 +211,37 @@ export function Society3D(el, opts = {}) {
     status('ready', api.plots.length + ' plots');
     if (opts.selectId != null) select(opts.selectId);
     return api;
+  }
+
+  // ---- nalla (storm drain) ---------------------------------------------------------------
+  function buildNala(features) {
+    if (!features.length) return;
+    const of = k => features.filter(f => f.properties.kind === k);
+    const bank = addMesh(flatGeom(of('nala_bank'), Y.lawn - .02), M.lawn);
+    const wall = addMesh(extrudeGeom(of('nala_wall'), 0, .95), M.concrete, { cast: true });
+    const bed = addMesh(flatGeom(of('nala_water'), .05), M.dirt);
+    const wat = addMesh(flatGeom(of('nala_water'), .38), M.water);
+    for (const f of of('nala_tree')) { const [e, n] = P(...f.geometry.coordinates); trees[(Math.round(e * 3 + n) % 4) ? 'round' : 'palm'].push([e, Y.lawn, -n, .95]); }
+    // bridge railings where roads cross the channel
+    const parts = [];
+    for (const f of of('bridge')) {
+      const [e, n] = P(...f.geometry.coordinates), h = f.properties.heading * PI / 180, off = f.properties.road_width / 2 + .35, span = f.properties.span + 3;
+      for (const s of [-1, 1]) {
+        const g = new THREE.BoxGeometry(span, 1.0, .35).translate(0, Y.road + .5, 0); g.rotateY(h);
+        g.translate(e - Math.sin(h) * off * s, 0, -(n + Math.cos(h) * off * s)); parts.push(g.toNonIndexed());
+        for (const t of [-span / 2, span / 2]) { const pgeo = new THREE.BoxGeometry(.6, 1.3, .6).translate(0, Y.road + .65, 0); pgeo.translate(e + Math.cos(h) * t - Math.sin(h) * off * s, 0, -(n + Math.sin(h) * t + Math.cos(h) * off * s)); parts.push(pgeo.toNonIndexed()); }
+      }
+    }
+    const rails = parts.length ? addMesh(mergeGeometries(parts), M.cream, { cast: true }) : null;
+    const line = of('nala_line')[0];
+    const id = 9001, mid = line ? line.geometry.coordinates[Math.floor(line.geometry.coordinates.length * .45)] : null;
+    const info = { id, kind: 'nala', name: 'Barani Nala (storm drain)', block: null, area_kanal: null, proposed: false, accuracy: 'approximate',
+      source: 'Traced from Esri World Imagery', length_m: line ? line.properties.length_m : null,
+      _group: { rotation: { y: 0 } }, _top: 2, _L: 160, _W: 30, _center: mid ? W3(...P(...mid), 0) : new THREE.Vector3() };
+    lmById.set(id, info); api.landmarks.push(info);
+    for (const m of [wall, wat, bed, rails]) if (m) { m.userData.lm = id; pickables.push(m); }
+    layers.stylised.push(bank, wall, bed, wat, rails);
+    api.nala = line ? line.geometry.coordinates.map(c => P(c[0], c[1])) : null;
   }
 
   // ---- streetscape -----------------------------------------------------------------
@@ -521,7 +560,7 @@ export function Society3D(el, opts = {}) {
   function updateLabels(now) {
     const dist = camera.position.distanceTo(controls.target);
     for (const o of blockLabels) o.visible = api.labels && dist > 650;
-    for (const o of lmLabels) { const d = camera.position.distanceTo(o.position), lm = o.userData.lm; const major = ['hospital', 'gate', 'stadium', 'university', 'cinema'].includes(lm.kind) || lm.monument === 'clocktower'; const minor = lm.kind === 'park' || lm.kind === 'roundabout'; o.visible = api.labels && (major ? dist < 3200 && d < 3600 : dist < (minor ? 700 : 1250) && d < (minor ? 900 : 1500)); }
+    for (const o of lmLabels) { const d = camera.position.distanceTo(o.position), lm = o.userData.lm; const major = ['hospital', 'gate', 'stadium', 'university', 'cinema', 'nala'].includes(lm.kind) || lm.monument === 'clocktower'; const minor = lm.kind === 'park' || lm.kind === 'roundabout'; o.visible = api.labels && (major ? dist < 3200 && d < 3600 : dist < (minor ? 700 : 1250) && d < (minor ? 900 : 1500)); }
     if (now - lastPlotLabelUpdate < 220) return;
     lastPlotLabelUpdate = now;
     let used = 0;
@@ -568,7 +607,7 @@ export function Society3D(el, opts = {}) {
   }
   function clearSelection() { clearSelGroup(); api.selected = null; }
   const publicProps = p => { const o = {}; for (const k in p) if (k[0] !== '_') o[k] = p[k]; return o; };
-  const publicLm = lm => Object.assign(publicProps(lm), { landmark: true, type_label: KIND_LABEL[lm.kind] || lm.kind, height_m: Math.round(lm._top) });
+  const publicLm = lm => Object.assign(publicProps(lm), { landmark: true, type_label: KIND_LABEL[lm.kind] || lm.kind, height_m: lm.kind === 'nala' ? null : Math.round(lm._top) });
 
   // ---- picking -------------------------------------------------------------------
   const ray = new THREE.Raycaster(); ray.firstHitOnly = true;
@@ -740,7 +779,8 @@ export function Society3D(el, opts = {}) {
     g.beginPath(); boundaryPlan.forEach(([e, n], i) => { const [x, y] = toC(e, n); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.fillStyle = '#4f6b3c'; g.fill();
     const plotCol = { High: '#3fae5f', Medium: '#e0a93a', Low: '#c9573f' };
     for (const p of api.plots) { const [x, y] = toC(p._c[0], p._c[1]); g.fillStyle = plotCol[p.dev_class]; g.fillRect(x - .9, y - .9, 1.8, 1.8); }
-    for (const lm of api.landmarks) { const [x, y] = toC(lm._center.x, -lm._center.z); g.fillStyle = KIND_COLOR[lm.kind] || '#fff'; g.beginPath(); g.arc(x, y, lm.kind === 'park' ? 3 : 4, 0, 2 * PI); g.fill(); }
+    if (api.nala) { g.strokeStyle = '#3d9be0'; g.lineWidth = 3; g.beginPath(); api.nala.forEach(([e, n], i) => { const [x, y] = toC(e, n); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); }
+    for (const lm of api.landmarks) { if (lm.kind === 'nala') continue; const [x, y] = toC(lm._center.x, -lm._center.z); g.fillStyle = KIND_COLOR[lm.kind] || '#fff'; g.beginPath(); g.arc(x, y, lm.kind === 'park' ? 3 : 4, 0, 2 * PI); g.fill(); }
     g.strokeStyle = '#f3ead8'; g.lineWidth = 2; g.beginPath(); boundaryPlan.forEach(([e, n], i) => { const [x, y] = toC(e, n); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.stroke();
     const ctx = c.getContext('2d');
     mini = () => {

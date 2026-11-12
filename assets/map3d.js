@@ -50,7 +50,7 @@ function Map3D(elementId, opts) {
       baseLayer: base, terrain: terrain || undefined,
       animation: false, timeline: false, geocoder: false, homeButton: false, sceneModePicker: false,
       baseLayerPicker: false, navigationHelpButton: false, fullscreenButton: false, infoBox: false,
-      selectionIndicator: false, shouldAnimate: false, requestRenderMode: true, maximumRenderTimeChange: Infinity,
+      selectionIndicator: false, shouldAnimate: false, requestRenderMode: false,
       msaaSamples: 4, contextOptions: { webgl: { powerPreference: 'high-performance' } }
     });
   } catch (e) {
@@ -132,13 +132,17 @@ function Map3D(elementId, opts) {
       const a = longest.c[0], b = longest.c[longest.c.length - 1];
       mainHeading = Math.atan2((b[0] - a[0]) * Math.cos(C.Math.toRadians(a[1])), b[1] - a[1]);
     }
+    if (bp.axis_deg != null) {
+      mainHeading = C.Math.toRadians(90 - bp.axis_deg);   // face up the boulevard from the south-west entrance
+    }
 
     // parks and amenities
     labels = scene.primitives.add(new C.LabelCollection());
     const parkInst = [];
     for (const f of parks.features) {
-      const p = f.properties, col = p.kind === 'park' ? '#4f9a5c' : '#8a7fb0';
+      const p = f.properties, col = p.kind === 'park' ? '#4f9a5c' : p.kind === 'nala' ? '#2b7fc4' : '#8a7fb0';
       parkInst.push(new C.GeometryInstance({ geometry: new C.PolygonGeometry({ polygonHierarchy: new C.PolygonHierarchy(toCart(f.geometry.coordinates[0], true)) }), attributes: { color: C.ColorGeometryInstanceAttribute.fromColor(css(col).withAlpha(0.85)) } }));
+      if (p.kind === 'nala') continue;
       const ctr = centroid(f.geometry.coordinates[0]);
       labels.add({ position: C.Cartesian3.fromDegrees(ctr[0], ctr[1], 2), text: p.name, font: '600 13px "Plus Jakarta Sans", Segoe UI, sans-serif', fillColor: C.Color.WHITE, outlineColor: css('#1a2a1e'), outlineWidth: 3, style: C.LabelStyle.FILL_AND_OUTLINE, heightReference: terrain ? C.HeightReference.CLAMP_TO_GROUND : C.HeightReference.NONE, verticalOrigin: C.VerticalOrigin.CENTER, distanceDisplayCondition: new C.DistanceDisplayCondition(0, 2600), disableDepthTestDistance: Number.POSITIVE_INFINITY });
     }

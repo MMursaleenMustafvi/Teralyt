@@ -5,6 +5,11 @@ Real geometry (accuracy="georeferenced"):
     (tools/source/osm_fda_city.json, Overpass export of OSM way 287541676 and the
     highways inside it). Roundabouts are the OSM junction=roundabout rings.
 
+Traced from satellite imagery (accuracy="approximate"):
+  * the Barani Nala storm drain (tools/source/nala_traced.geojson, traced on
+    Esri World Imagery and snapped to the channel); no plots are placed on it
+    or on its banks, and bridges are added where roads cross it.
+
 Derived geometry (accuracy="approximate"):
   * road surfaces use the official FDA City road widths (202 ft boulevard,
     60/85 ft collectors, 40 ft streets) buffered around the OSM centrelines;
@@ -21,10 +26,11 @@ Derived geometry (accuracy="approximate"):
     Plot numbers, status, class and heights are SAMPLE values (fixed seed).
 
 usage (from the repo root):  python -I tools/make_data.py [--preview out.png]
-writes data/boundary, roads, road_surface, outer_roads, blocks (land parcels), landmarks,
+writes data/boundary, roads, road_surface, outer_roads, blocks (land parcels), landmarks, water (nalla),
 parks (landmark footprints for the CesiumJS view) and plots, all .geojson
 """
 import argparse
+from collections import Counter
 import hashlib
 import json
 import math
@@ -232,7 +238,6 @@ def main():
     for d in lines:
         if d["cls"] == "residential" and coll_zone is not None and d["line"].within(coll_zone):
             d["cls"] = "collector"
-    from collections import Counter
     print("road classes:", dict(Counter(d["cls"] for d in lines)))
 
     # main carriageway spacing
@@ -248,34 +253,66 @@ def main():
     surf = unary_union([d["line"].buffer(WIDTH[d["cls"]] / 2, join_style=2 if d["cls"] != "roundabout" else 1, mitre_limit=3) for d in lines])
     surf = surf.buffer(0.3).buffer(-0.3)  # heal slivers at junctions
 
-    # ---- faces of the road network (with the boundary as a closing edge) -----------
-    noded = unary_union([d["line"] for d in lines] + [LineString(B.exterior.coords)])
+    # ---- nalla (storm drain) traced from satellite imagery ----------------------------
+    nala = None
+    nala_src = os.path.join(HERE, "source", "nala_traced.geojson")
+    if os.path.exists(nala_src):
+        g = json.load(open(nala_src, encoding="utf-8"))["features"][0]
+        raw = LineString([xy({"lon": a, "lat": b}) for a, b in g["geometry"]["coordinates"]]).simplify(0.8)
+        clipped = raw.intersection(B.buffer(150))
+        parts = [clipped] if clipped.geom_type == "LineString" else [q for q in getattr(clipped, "geoms", []) if q.geom_type == "LineString"]
+        if parts:
+            nala = max(parts, key=lambda q: q.length)
+            print(f"nalla: {nala.length:.0f} m inside the society")
+    NALA_CH, NALA_BANK = 3.4, 8.5   # half-widths: lined channel, channel + banks
+    nala_zone = nala.buffer(NALA_BANK) if nala is not None else None
+
+    # ---- faces of the road network (with the boundary and the nalla as closing edges) --
+    noded = unary_union([d["line"] for d in lines] + [LineString(B.exterior.coords)] + ([nala] if nala is not None else []))
     faces = [f for f in polygonize(noded) if f.representative_point().within(B)]
     print(f"faces: {len(faces)}")
 
     rb_zone = unary_union([d["poly"].buffer(2) for d in rbs])
     F = []  # parcels
+    pieces = []
     for i, f in enumerate(faces):
         land = f.difference(surf)
-        lp = largest_polygon(land)
-        if lp is None or lp.area < 30:
-            continue
+        if nala_zone is not None:
+            land = land.difference(nala_zone)
+        # a dead-end road can cut a face into several pieces: keep every piece
+        for j, q in enumerate(sorted(polys(land), key=lambda q: -q.area)):
+            if q.area < 40:
+                continue
+            # a piece whose footpath inset falls apart becomes several parcels
+            ins = [r for r in polys(q.buffer(-SIDEWALK)) if r.area >= 25]
+            if len(ins) <= 1:
+                pieces.append((i * 100 + j, q))
+            else:
+                for k2, r in enumerate(ins):
+                    sub = largest_polygon(q.intersection(r.buffer(SIDEWALK + 0.4, join_style=2)))
+                    if sub is not None and sub.area >= 40:
+                        pieces.append((i * 100 + j * 10 + k2 + 5000000, sub))
+    for i, lp in pieces:
         lp = lp.simplify(0.2)
         cen = lp.representative_point()
         mrr = lp.minimum_rotated_rectangle
         cs = list(mrr.exterior.coords)
         short = min(math.dist(cs[0], cs[1]), math.dist(cs[1], cs[2]))
+        touching_mains = sum(1 for m in mains if m.distance(lp) < WIDTH["main"] / 2 + 3)
+        inner = largest_polygon(lp.buffer(-SIDEWALK))
         if lp.within(rb_zone):
             kind = "island"
-        elif axis_line.distance(cen) < spacing / 2 + 4 and short < spacing + 4:
-            kind = "median"
+        elif (touching_mains >= 2 and short < 45) or (axis_line.distance(cen) < spacing / 2 + 4 and short < spacing + 4):
+            kind = "median"          # strip between the two carriageways of the boulevard
+        elif inner is None or inner.buffer(-6.5).is_empty:
+            kind = "greenbelt"       # too narrow for a row of plots: planted strip between roads
         else:
             kind = "parcel"
         u, v = uv(cen)
         F.append({"i": i, "land": lp, "kind": kind, "blk": block_of(cen), "u": u, "v": v, "c": cen,
-                  "area": lp.area, "inner": largest_polygon(lp.buffer(-SIDEWALK)) if kind == "parcel" else None, "use": None})
+                  "area": lp.area, "inner": inner if kind in ("parcel", "greenbelt") else None, "use": None})
     parcels = [p for p in F if p["kind"] == "parcel"]
-    print(f"parcels: {len(parcels)}  medians: {sum(p['kind']=='median' for p in F)}  islands: {sum(p['kind']=='island' for p in F)}")
+    print("land:", dict(Counter(p["kind"] for p in F)))
 
     # ---- landmarks -----------------------------------------------------------------
     landmarks = []
@@ -295,7 +332,9 @@ def main():
 
     def aspect(p):
         o = obb(p["inner"])
-        return o["length"] / max(o["width"], 1)
+        r = o["length"] / max(o["width"], 1)
+        solid = p["inner"].area / max(p["inner"].convex_hull.area, 1)
+        return r if solid > 0.86 else 99   # L-shapes and other awkward sites are never "compact"
 
     blocks_c = {}
     for b in "ABCDEF":
@@ -491,17 +530,56 @@ def main():
     for p in F:
         use = p["use"] or ("open" if p["kind"] == "parcel" else p["kind"])
         land_feats.append(feature(p["land"], {"layer": "land", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "area_m2": round(p["area"]), "accuracy": "approximate"}))
-        if p["inner"] is not None:
+        if p["inner"] is not None and p["kind"] in ("parcel", "greenbelt"):
             land_feats.append(feature(p["inner"].simplify(0.2), {"layer": "inner", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "accuracy": "approximate"}))
     print("writing to", out)
     write(out, "boundary", [feature(B, bprops)])
     write(out, "roads", road_feats)
+    water_feats = []
+    if nala is not None:
+        cut = surf.buffer(0.6)
+        channel = nala.buffer(NALA_CH, cap_style=2)
+        wall = nala.buffer(NALA_CH + 0.45, cap_style=2).difference(nala.buffer(NALA_CH - 0.05, cap_style=2))
+        bank = nala.buffer(NALA_BANK, cap_style=2).difference(nala.buffer(NALA_CH + 0.45, cap_style=2)).difference(surf)
+        nprops = {"name": "Barani Nala (storm drain)", "source": "Traced from Esri World Imagery", "accuracy": "approximate"}
+        for q in polys(channel.difference(cut)):
+            if q.area > 5:
+                water_feats.append(feature(q.simplify(0.15), dict(nprops, kind="nala_water")))
+        for q in polys(wall.difference(cut)):
+            if q.area > 1:
+                water_feats.append(feature(q.simplify(0.1), dict(nprops, kind="nala_wall")))
+        for q in polys(bank):
+            if q.area > 5:
+                water_feats.append(feature(q.simplify(0.2), dict(nprops, kind="nala_bank")))
+        water_feats.append(feature(nala, dict(nprops, kind="nala_line", width_m=round(2 * NALA_CH, 1), length_m=round(nala.length))))
+        trees = []
+        for side in (-1, 1):
+            off = nala.offset_curve(side * (NALA_CH + 3.2))
+            for q in ([off] if off.geom_type == "LineString" else list(getattr(off, "geoms", []))):
+                dist = 6.0
+                while dist < q.length:
+                    pt = q.interpolate(dist)
+                    if not surf.buffer(1.5).contains(pt):
+                        trees.append(pt)
+                    dist += 13.0
+        for pt in trees:
+            water_feats.append(feature(pt, {"kind": "nala_tree"}))
+        for d in lines:  # bridges where a road crosses the channel
+            x = d["line"].intersection(nala)
+            for pt in ([x] if x.geom_type == "Point" else [q for q in getattr(x, "geoms", []) if q.geom_type == "Point"]):
+                c = d["line"].project(pt)
+                a, b = d["line"].interpolate(max(0, c - 3)), d["line"].interpolate(min(d["line"].length, c + 3))
+                water_feats.append(feature(pt, {"kind": "bridge", "heading": round(math.degrees(math.atan2(b.y - a.y, b.x - a.x)), 1),
+                                                "road_width": round(WIDTH[d["cls"]], 1), "span": round(2 * NALA_CH + 2, 1)}))
+        print("water:", dict(Counter(f["properties"]["kind"] for f in water_feats)))
     inner_surf = surf.intersection(B.buffer(1.0))
     write(out, "road_surface", [feature(q.simplify(0.25), {"kind": "carriageway", "accuracy": "approximate", "source": "OSM centrelines buffered to official widths"}) for q in polys(inner_surf) if q.area > 20])
     write(out, "outer_roads", [feature(q.simplify(0.3), {"kind": "road", "accuracy": "approximate"}) for q in polys(outer) if q.area > 20])
     write(out, "blocks", land_feats)
     write(out, "landmarks", landmarks)
-    write(out, "parks", [f for f in landmarks if f["geometry"]["type"] == "Polygon" and f["properties"]["kind"] != "roundabout"])
+    write(out, "water", water_feats)
+    write(out, "parks", [f for f in landmarks if f["geometry"]["type"] == "Polygon" and f["properties"]["kind"] != "roundabout"]
+          + [dict(f, properties=dict(f["properties"], kind="nala", name="Barani Nala")) for f in water_feats if f["properties"]["kind"] == "nala_water"])
     write(out, "plots", plot_feats, {"data_note": "Plot geometry and attributes are generated samples (accuracy=approximate). Replace with surveyed or georeferenced data using the same property names."})
 
     if args.preview:
@@ -514,7 +592,10 @@ def main():
             axp.fill(*q.exterior.xy, color="#555", ec="none")
             for r in q.interiors:
                 axp.fill(*r.xy, color="white", ec="none")
-        LC = {"parcel": "#d9cfb6", "median": "#5a9a55", "island": "#5a9a55"}
+        LC = {"parcel": "#d9cfb6", "median": "#5a9a55", "island": "#5a9a55", "greenbelt": "#7fbf6a"}
+        if nala is not None:
+            for q in polys(nala.buffer(NALA_CH)):
+                axp.fill(*q.exterior.xy, color="#2b7fc4", ec="none", zorder=5)
         for p in F:
             axp.fill(*p["land"].exterior.xy, color=LC[p["kind"]], ec="none")
         KC = {"park": "#62b06a", "playground": "#9bd17a", "school": "#d98b5f", "mosque": "#f2f2f2", "commercial": "#7aa6d9",

@@ -55,6 +55,7 @@ Screenshot test: `python -I tools/shoot.py http://127.0.0.1:8000/map.html out.pn
 | `roads.geojson` | LineString, props `class` (main, collector, residential, roundabout, arterial), `width_m` | OpenStreetMap centrelines (georeferenced) |
 | `road_surface.geojson`, `outer_roads.geojson` | Polygon | centrelines buffered to official widths (approximate) |
 | `blocks.geojson` | Polygon, props `layer` (land, or inner lawn), `kind` (parcel, median, island), `use` | faces of the road network (approximate) |
+| `water.geojson` | Polygon, LineString, Point; `kind` nala_water, nala_wall, nala_bank, nala_line, nala_tree, bridge | Barani Nala traced from Esri World Imagery (approximate) |
 | `landmarks.geojson` | Polygon (Point for the gate), props `kind`, `name`, `block`, `area_kanal`, `proposed`, `obb` | placed per the official FDA City block maps (approximate) |
 | `parks.geojson` | Polygon | landmark footprints for the CesiumJS view |
 | `plots.geojson` | Polygon | generated inside parcels at official sizes (approximate, sample attributes) |
