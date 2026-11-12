@@ -139,6 +139,22 @@ function seatsTex() {
   return tex(cv(64, 256, (g, w, h) => { for (let y = 0; y < h; y += 16) { g.fillStyle = (y / 16) % 4 === 0 ? '#e8e2d2' : '#2f7d4f'; g.fillRect(0, y, w, 12); g.fillStyle = '#7d7a74'; g.fillRect(0, y + 12, w, 4); } }));
 }
 
+function waterNormals() {
+  // tileable ripple normal map from summed sine waves
+  const S = 256, c = cv(S, S, (g) => {
+    const im = g.createImageData(S, S), r = rng(77), waves = [];
+    for (let i = 0; i < 9; i++) waves.push([Math.round((r() - .5) * 8) || 1, Math.round((r() - .5) * 8) || 2, r() * 6.28, .4 + r() * .6]);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      let dx = 0, dy = 0;
+      for (const [kx, ky, ph, a] of waves) { const t = 2 * PI * (kx * x + ky * y) / S + ph, c_ = Math.cos(t) * a; dx += c_ * kx; dy += c_ * ky; }
+      const nx = -dx * .05, ny = -dy * .05, l = Math.hypot(nx, ny, 1), i = (y * S + x) * 4;
+      im.data[i] = (nx / l * .5 + .5) * 255; im.data[i + 1] = (ny / l * .5 + .5) * 255; im.data[i + 2] = (1 / l * .5 + .5) * 255; im.data[i + 3] = 255;
+    }
+    g.putImageData(im, 0, 0);
+  });
+  return tex(c, { srgb: false });
+}
+
 // ---------------------------------------------------------------------------
 // materials
 // ---------------------------------------------------------------------------
@@ -188,6 +204,7 @@ export function createMaterials() {
     facPink: facade({ wall: '#e6c3b4', wallNoise: ['#d8b2a2'], frame: '#f7efe8', seed: 9 }),
   };
   M.night = night.concat([M.lampOn, M.clock]);
+  M.water.normalMap = waterNormals(); M.water.normalMap.repeat.set(.08, .08); M.water.normalScale = new THREE.Vector2(.6, .6);
   return M;
 }
 
@@ -679,7 +696,21 @@ B.roundabout = (k, L, W, lm) => {
   k.cyl(R, R, .35, 48, M.concrete, 0, 0, 0);
   k.disc(R - .5, M.lawn, 0, .36, 0, 48);
   k.ring(R * .45, R * .8, M.flowers, 0, .37, 0, 48);
-  if (lm.monument === 'clocktower') {
+  if (lm.monument === 'rings') {
+    // concentric planted rings, as seen on the satellite image, with an FDA City obelisk
+    for (const f of [.86, .66, .46]) k.ring(R * f - .7, R * f, M.hedge, 0, .38, 0, 56);
+    for (const f of [.76, .56]) k.ring(R * f - 1.2, R * f, M.flowers, 0, .385, 0, 56);
+    k.cyl(R * .3, R * .32, .5, 32, M.marble, 0, .36, 0);
+    k.box(2.2, 1.2, 2.2, M.marble, 0, .86, 0);
+    const ob = new THREE.CylinderGeometry(.35, 1.0, 12, 4, 1).translate(0, 6, 0); ob.rotateY(PI / 4);
+    k.geo(ob, M.white, 0, 2.06, 0);
+    k.geo(new THREE.ConeGeometry(.5, 1.4, 4).rotateY(PI / 4).translate(0, .7, 0), M.gold, 0, 14.06, 0);
+    for (const s of [0, PI]) k.sign('FDA CITY', 4.2, 1.1, Math.sin(s) * 1.25, 1.5, Math.cos(s) * 1.25, s, { bg: '#1f5a38', border: '#d6a840' });
+  } else if (lm.monument === 'tree') {
+    k.cyl(R * .2, R * .22, .45, 24, M.paving, 0, .36, 0);
+    k.tree(0, 0, 'round', 2.4);
+    for (let i = 0; i < 14; i++) { const a = i / 14 * 2 * PI; k.tree(Math.cos(a) * R * .55, Math.sin(a) * R * .55, 'cone', .7); }
+  } else if (lm.monument === 'clocktower') {
     // replica of Faisalabad's Ghanta Ghar (Clock Tower)
     k.box(8, 1.6, 8, M.sand, 0, .36, 0);
     k.fbox(5.2, 17, 5.2, M.facSand, 0, 1.96, 0);
@@ -699,6 +730,70 @@ B.roundabout = (k, L, W, lm) => {
     k.cyl(.12, .2, 4, 8, M.water, 0, 5.4, 0, { shadow: false });
   }
   for (let i = 0; i < 10; i++) { const a = i / 10 * 2 * PI; k.tree(Math.cos(a) * R * .88, Math.sin(a) * R * .88, 'palm', .85); }
+};
+
+B.dispensary = (k, L, W) => {
+  const M = k.M;
+  k.ground(M.paving, .03);
+  const bw = Math.min(L - 3, 16), bd = Math.min(W - 3, 12);
+  const top = k.building(bw, bd, 2, M.facWhite, 0, 0, 0, { parapetMat: M.white, tanks: false });
+  k.box(1, 3.4, 3.4, M.red, bw / 2 + .55, top - 4, 0); k.box(1.05, 1.1, 3.42, M.white, bw / 2 + .57, top - 2.85, 0); k.box(1.08, 3.42, 1.1, M.white, bw / 2 + .58, top - 4, 0);
+  k.sign('DISPENSARY', Math.min(bw - 1, 9), 1.1, 0, 3.8, bd / 2 + .15, 0, { bg: '#ffffff', fg: '#1d6b3c', border: '#1d6b3c' });
+};
+
+B.homes = (k, L, W, lm) => {
+  // FDA City Homes: a gated scheme of identical double-storey houses on a street grid
+  const M = k.M, r = rng(lm.id * 13);
+  k.ground(M.lawn, .03);
+  k.wall(2.2, .35, M.cream, 14, M.sand);
+  const hw = 9.5, hd = 17, street = 9, rowD = hd * 2 + street;
+  const facs = [M.facCream, M.facPink, M.facSand, M.facCream];
+  const roofs = [M.terracotta, M.roofGray, M.roofDark];
+  let n = 0;
+  for (let z = -W / 2 + 8; z + hd * 2 < W / 2 - 6; z += rowD) {
+    k.plane(L - 10, street, M.asphalt, 0, .05, z + hd * 2 + street / 2, 0, { metres: true });
+    for (let x = -L / 2 + 7; x + hw < L / 2 - 6; x += hw + .6) {
+      for (const [zz, ry] of [[z + hd / 2, PI], [z + hd * 1.5, 0]]) {
+        if (!k.inside(x + hw / 2, zz, 3)) continue;
+        if (n++ > 1500) break;
+        const f = facs[(r() * facs.length) | 0];
+        k.fbox(hw - .8, 6.8, 11, f, x + hw / 2, 0, zz + (ry ? -2.5 : 2.5));
+        const roof = new THREE.ConeGeometry(Math.hypot(hw - .8, 11) / 2 * 1.05, 2.4, 4, 1).rotateY(PI / 4).scale((hw - .8) / 11, 1, 1);
+        k.geo(roof, roofs[(r() * roofs.length) | 0], x + hw / 2, 6.8, zz + (ry ? -2.5 : 2.5));
+        k.box(hw - .8, 1.2, .2, M.cream, x + hw / 2, 0, zz + (ry ? 5.6 : -5.6));
+        if (r() < .5) k.tree(x + hw / 2 + 2.5, zz + (ry ? 4 : -4), 'round', .55);
+      }
+    }
+  }
+  if (k.gate) k.sign('FDA CITY HOMES', 10, 1.6, k.gate.x + k.gate.nx * .4, 2.6, k.gate.z + k.gate.nz * .4, k.gate.ry, { bg: '#1f5a38', border: '#d6a840' });
+};
+
+B.metro = (k, L, W) => {
+  const M = k.M;
+  k.ground(M.parking, .03);
+  const bw = Math.min(L * .55, 160), bd = Math.min(W * .45, 110), bz = -W * .18;
+  k.box(bw, 11, bd, M.concrete, 0, 0, bz);
+  k.box(bw + .6, .8, bd + .6, M.blue, 0, 11, bz);
+  for (let x = -bw / 2 + 8; x < bw / 2 - 6; x += 12) k.box(6, .5, bd * .8, M.steel, x, 11.8, bz);
+  k.box(bw * .5, 5, 1.2, M.glass, 0, 0, bz + bd / 2 + .4);
+  k.sign('METRO', 22, 5, 0, 5.4, bz + bd / 2 + .7, 0, { bg: '#0b3a7a', fg: '#ffd400', border: '#ffd400', size: 170 });
+  for (let x = -bw / 2; x < bw / 2; x += 2.6) for (const z of [bz + bd / 2 + 14, bz + bd / 2 + 26]) if (((x * 7) | 0) % 3) k.car(x, z, PI / 2);
+  for (let x = -L / 2 + 6; x < L / 2; x += 14) k.lamp(x, W / 2 - 3, PI, 'street');
+};
+
+B.sewerage = (k, L, W) => {
+  const M = k.M;
+  k.ground(M.gravel, .03);
+  k.wall(1.8, .3, M.concrete, 6, M.darkSteel);
+  const R = Math.min(L, W) * .2;
+  for (const s of [-1, 1]) {
+    k.cyl(R, R, 2.4, 40, M.concrete, s * L * .22, 0, -W * .1, { open: true });
+    k.cyl(R - .3, R - .3, .05, 40, M.water, s * L * .22, 2.0, -W * .1);
+    k.box(R * 2, .25, 1, M.darkSteel, s * L * .22, 2.6, -W * .1);
+  }
+  k.box(L * .7, .6, W * .25, M.concrete, 0, 0, W * .28);
+  k.box(L * .7 - 1, .05, W * .25 - 1, M.water, 0, .5, W * .28);
+  k.building(8, 6, 1, M.facCream, L / 2 - 6, -W / 2 + 5, 0, { tanks: false });
 };
 
 export function buildLandmark(kind, k, L, W, lm) {

@@ -1,0 +1,1239 @@
+{
+ "about": "Features digitised from the official FDA City plan (Advice Associates brochure, fdacity.pk) and its block maps. Coordinates are pixels of the 1600x1152 overall plan image (x right, y down). The plan is georeferenced with a similarity transform fitted to three roundabouts (residuals under 3 m).",
+ "plan_image": {
+  "url": "https://fdacity.pk/images/fdacity%20map.jpg",
+  "size": [
+   1600,
+   1152
+  ]
+ },
+ "control_points": [
+  {
+   "px": [
+    945,
+    487
+   ],
+   "lonlat": [
+    73.082462,
+    31.520554
+   ],
+   "what": "Roundabout between Block A and Block B (OSM way 286093895)"
+  },
+  {
+   "px": [
+    1220,
+    487
+   ],
+   "lonlat": [
+    73.087766,
+    31.52568
+   ],
+   "what": "Roundabout between Block B and Block C (OSM way 286093126)"
+  },
+  {
+   "px": [
+    570,
+    630
+   ],
+   "lonlat": [
+    73.078424,
+    31.511277
+   ],
+   "what": "Block A south-west roundabout (OSM way 376583795)"
+  }
+ ],
+ "envelope": [
+  [
+   150,
+   600
+  ],
+  [
+   300,
+   420
+  ],
+  [
+   560,
+   140
+  ],
+  [
+   700,
+   100
+  ],
+  [
+   1000,
+   85
+  ],
+  [
+   1470,
+   5
+  ],
+  [
+   1595,
+   5
+  ],
+  [
+   1595,
+   585
+  ],
+  [
+   1470,
+   585
+  ],
+  [
+   1470,
+   1005
+  ],
+  [
+   1340,
+   1095
+  ],
+  [
+   840,
+   1115
+  ],
+  [
+   830,
+   735
+  ],
+  [
+   150,
+   735
+  ]
+ ],
+ "blocks": {
+  "rules": "x < 945: Block A north of the Block F line, Block F south of it and in the column 830 to 945 below the boulevard; 945 to 1225: Block B north of the boulevard (y < 487), Block E south; x >= 1225: Block C north, Block D south. Block F's strip south of the plan line y=652 is limited to y <= 728 (the village of Samana lies beyond it).",
+  "boulevard_y": 487,
+  "divider_x": [
+   945,
+   1225
+  ],
+  "f_line_y": 652,
+  "f_column": [
+   830,
+   945
+  ],
+  "curve": [
+   [
+    945,
+    487
+   ],
+   [
+    877,
+    487
+   ],
+   [
+    800,
+    525
+   ],
+   [
+    725,
+    580
+   ],
+   [
+    675,
+    612
+   ],
+   [
+    600,
+    632
+   ],
+   [
+    560,
+    635
+   ],
+   [
+    450,
+    632
+   ],
+   [
+    395,
+    625
+   ],
+   [
+    370,
+    580
+   ],
+   [
+    350,
+    530
+   ],
+   [
+    325,
+    470
+   ],
+   [
+    290,
+    437
+   ]
+  ],
+  "label_px": {
+   "A": [
+    600,
+    520
+   ],
+   "B": [
+    1085,
+    330
+   ],
+   "C": [
+    1350,
+    330
+   ],
+   "D": [
+    1340,
+    760
+   ],
+   "E": [
+    1080,
+    760
+   ],
+   "F": [
+    885,
+    800
+   ]
+  },
+  "f_strip_max_y": 728
+ },
+ "zones": [
+  {
+   "kind": "multipurpose",
+   "name": "Multi-Purpose Uses",
+   "block": "C",
+   "px": [
+    [
+     1475,
+     22
+    ],
+    [
+     1580,
+     22
+    ],
+    [
+     1580,
+     265
+    ],
+    [
+     1475,
+     265
+    ]
+   ]
+  },
+  {
+   "kind": "university",
+   "name": "Proposed University",
+   "block": "C",
+   "proposed": true,
+   "px": [
+    [
+     1475,
+     280
+    ],
+    [
+     1580,
+     280
+    ],
+    [
+     1580,
+     332
+    ],
+    [
+     1475,
+     332
+    ]
+   ]
+  },
+  {
+   "kind": "stadium",
+   "name": "Proposed Cricket Stadium",
+   "block": "C",
+   "proposed": true,
+   "px": [
+    [
+     1475,
+     337
+    ],
+    [
+     1580,
+     337
+    ],
+    [
+     1580,
+     404
+    ],
+    [
+     1475,
+     404
+    ]
+   ]
+  },
+  {
+   "kind": "cinema",
+   "name": "Proposed IMAX Theatre",
+   "block": "C",
+   "proposed": true,
+   "px": [
+    [
+     1475,
+     408
+    ],
+    [
+     1580,
+     408
+    ],
+    [
+     1580,
+     474
+    ],
+    [
+     1475,
+     474
+    ]
+   ]
+  },
+  {
+   "kind": "homes",
+   "name": "Area for FDA City Homes",
+   "block": "E",
+   "px": [
+    [
+     960,
+     930
+    ],
+    [
+     1050,
+     930
+    ],
+    [
+     1050,
+     925
+    ],
+    [
+     1146,
+     925
+    ],
+    [
+     1146,
+     932
+    ],
+    [
+     1215,
+     932
+    ],
+    [
+     1215,
+     1092
+    ],
+    [
+     960,
+     1096
+    ]
+   ]
+  },
+  {
+   "kind": "metro",
+   "name": "Metro Store",
+   "block": null,
+   "outside": true,
+   "px": [
+    [
+     18,
+     452
+    ],
+    [
+     92,
+     445
+    ],
+    [
+     140,
+     520
+    ],
+    [
+     205,
+     592
+    ],
+    [
+     72,
+     628
+    ]
+   ]
+  },
+  {
+   "kind": "grid",
+   "name": "Grid Station",
+   "block": "F",
+   "outside": true,
+   "px": [
+    [
+     553,
+     744
+    ],
+    [
+     646,
+     744
+    ],
+    [
+     646,
+     762
+    ],
+    [
+     553,
+     762
+    ]
+   ]
+  },
+  {
+   "kind": "graveyard",
+   "name": "Existing Graveyard",
+   "block": "F",
+   "px": [
+    [
+     660,
+     691
+    ],
+    [
+     697,
+     691
+    ],
+    [
+     697,
+     711
+    ],
+    [
+     660,
+     711
+    ]
+   ]
+  },
+  {
+   "kind": "sewerage",
+   "name": "Sewerage Disposal Works",
+   "block": "F",
+   "outside": true,
+   "px": [
+    [
+     214,
+     776
+    ],
+    [
+     252,
+     776
+    ],
+    [
+     252,
+     800
+    ],
+    [
+     214,
+     800
+    ]
+   ]
+  }
+ ],
+ "complexes": [
+  {
+   "block": "A",
+   "px": [
+    828,
+    352,
+    890,
+    408
+   ],
+   "parts": "standard"
+  },
+  {
+   "block": "B",
+   "px": [
+    1032,
+    251,
+    1102,
+    311
+   ],
+   "parts": "standard_dispensary"
+  },
+  {
+   "block": "C",
+   "px": [
+    1307,
+    266,
+    1365,
+    318
+   ],
+   "parts": "standard"
+  },
+  {
+   "block": "D",
+   "px": [
+    1313,
+    634,
+    1373,
+    691
+   ],
+   "parts": "standard"
+  },
+  {
+   "block": "E",
+   "px": [
+    1057,
+    627,
+    1116,
+    688
+   ],
+   "parts": "standard"
+  },
+  {
+   "block": "E",
+   "px": [
+    1051,
+    927,
+    1145,
+    995
+   ],
+   "parts": "homes_centre",
+   "name": "FDA City Homes Centre"
+  }
+ ],
+ "complex_parts": {
+  "standard": [
+   {
+    "kind": "mosque",
+    "name": "Jamia Mosque ({b})",
+    "r": [
+     0.0,
+     0.0,
+     0.32,
+     0.34
+    ]
+   },
+   {
+    "kind": "school",
+    "name": "Govt. Primary School ({b})",
+    "r": [
+     0.0,
+     0.34,
+     0.32,
+     1.0
+    ]
+   },
+   {
+    "kind": "playground",
+    "name": "Playground {b}",
+    "r": [
+     0.32,
+     0.0,
+     1.0,
+     0.76
+    ]
+   },
+   {
+    "kind": "commercial",
+    "name": "Commercial Centre ({b})",
+    "r": [
+     0.32,
+     0.76,
+     1.0,
+     1.0
+    ]
+   }
+  ],
+  "standard_dispensary": [
+   {
+    "kind": "mosque",
+    "name": "Jamia Mosque ({b})",
+    "r": [
+     0.0,
+     0.0,
+     0.4,
+     0.34
+    ]
+   },
+   {
+    "kind": "school",
+    "name": "Govt. Primary School ({b})",
+    "r": [
+     0.0,
+     0.34,
+     0.4,
+     1.0
+    ]
+   },
+   {
+    "kind": "playground",
+    "name": "Playground {b}",
+    "r": [
+     0.4,
+     0.0,
+     1.0,
+     0.75
+    ]
+   },
+   {
+    "kind": "dispensary",
+    "name": "Dispensary ({b})",
+    "r": [
+     0.4,
+     0.75,
+     0.5,
+     1.0
+    ]
+   },
+   {
+    "kind": "commercial",
+    "name": "Commercial Centre ({b})",
+    "r": [
+     0.5,
+     0.75,
+     1.0,
+     1.0
+    ]
+   }
+  ],
+  "homes_centre": [
+   {
+    "kind": "commercial",
+    "name": "Commercial Centre (FDA City Homes)",
+    "r": [
+     0.0,
+     0.0,
+     0.21,
+     0.51
+    ]
+   },
+   {
+    "kind": "school",
+    "name": "Primary School (FDA City Homes)",
+    "r": [
+     0.0,
+     0.51,
+     0.21,
+     1.0
+    ]
+   },
+   {
+    "kind": "playground",
+    "name": "Playground E-6",
+    "r": [
+     0.22,
+     0.0,
+     0.62,
+     0.7
+    ]
+   },
+   {
+    "kind": "civic",
+    "name": "Public Building",
+    "r": [
+     0.22,
+     0.7,
+     0.62,
+     1.0
+    ]
+   },
+   {
+    "kind": "sports",
+    "name": "Sports Complex",
+    "r": [
+     0.69,
+     0.0,
+     1.0,
+     0.61
+    ]
+   },
+   {
+    "kind": "hospital",
+    "name": "FDA City Hospital",
+    "r": [
+     0.69,
+     0.61,
+     1.0,
+     1.0
+    ]
+   }
+  ]
+ },
+ "parks": [
+  {
+   "px": [
+    1264,
+    69,
+    1294,
+    83
+   ],
+   "block": "C"
+  },
+  {
+   "px": [
+    1150,
+    75,
+    1168,
+    98
+   ],
+   "block": "B",
+   "kanal": 4.51
+  },
+  {
+   "px": [
+    1364,
+    103,
+    1388,
+    125
+   ],
+   "block": "C",
+   "name": "Park C-3"
+  },
+  {
+   "px": [
+    1078,
+    114,
+    1094,
+    123
+   ],
+   "block": "B",
+   "name": "Park B-3 (nalla)"
+  },
+  {
+   "px": [
+    864,
+    155,
+    887,
+    172
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    1001,
+    170,
+    1010,
+    193
+   ],
+   "block": "B",
+   "name": "Park B-2",
+   "kanal": 1.75
+  },
+  {
+   "px": [
+    724,
+    176,
+    777,
+    205
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    1055,
+    188,
+    1080,
+    205
+   ],
+   "block": "B",
+   "name": "Park B-3",
+   "kanal": 3.6
+  },
+  {
+   "px": [
+    1274,
+    191,
+    1289,
+    209
+   ],
+   "block": "C",
+   "name": "Park C-2"
+  },
+  {
+   "px": [
+    1335,
+    191,
+    1351,
+    204
+   ],
+   "block": "C",
+   "name": "Park C-4"
+  },
+  {
+   "px": [
+    1420,
+    235,
+    1448,
+    262
+   ],
+   "block": "C",
+   "name": "Park C-4"
+  },
+  {
+   "px": [
+    836,
+    262,
+    861,
+    279
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    1161,
+    307,
+    1194,
+    345
+   ],
+   "block": "B",
+   "name": "Park B-4",
+   "kanal": 16.18
+  },
+  {
+   "px": [
+    1390,
+    326,
+    1418,
+    345
+   ],
+   "block": "C",
+   "name": "Park C-6"
+  },
+  {
+   "px": [
+    731,
+    339,
+    741,
+    361
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    996,
+    406,
+    1048,
+    426
+   ],
+   "block": "B",
+   "name": "Park B-1",
+   "kanal": 16.55
+  },
+  {
+   "px": [
+    696,
+    414,
+    721,
+    425
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    431,
+    424,
+    455,
+    452
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    644,
+    541,
+    673,
+    567
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    391,
+    549,
+    429,
+    563
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    1110,
+    549,
+    1141,
+    574
+   ],
+   "block": "E",
+   "name": "Park E-2"
+  },
+  {
+   "px": [
+    1366,
+    549,
+    1389,
+    597
+   ],
+   "block": "D",
+   "name": "Park D-2"
+  },
+  {
+   "px": [
+    719,
+    575,
+    747,
+    597
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    357,
+    597,
+    375,
+    615
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    1002,
+    604,
+    1022,
+    628
+   ],
+   "block": "E",
+   "name": "Park E-1"
+  },
+  {
+   "px": [
+    1257,
+    606,
+    1281,
+    638
+   ],
+   "block": "D",
+   "name": "Park D-1"
+  },
+  {
+   "px": [
+    735,
+    611,
+    768,
+    625
+   ],
+   "block": "A"
+  },
+  {
+   "px": [
+    1164,
+    675,
+    1180,
+    693
+   ],
+   "block": "E",
+   "name": "Park E-3"
+  },
+  {
+   "px": [
+    1400,
+    722,
+    1434,
+    744
+   ],
+   "block": "D",
+   "name": "Park D-3"
+  },
+  {
+   "px": [
+    862,
+    741,
+    888,
+    758
+   ],
+   "block": "F"
+  },
+  {
+   "px": [
+    1289,
+    760,
+    1312,
+    783
+   ],
+   "block": "D",
+   "name": "Park D-4"
+  },
+  {
+   "px": [
+    1017,
+    761,
+    1055,
+    783
+   ],
+   "block": "E",
+   "name": "Park E-4"
+  },
+  {
+   "px": [
+    1145,
+    762,
+    1165,
+    782
+   ],
+   "block": "E",
+   "name": "Park E-3"
+  },
+  {
+   "px": [
+    1260,
+    830,
+    1285,
+    858
+   ],
+   "block": "D",
+   "name": "Park D-5"
+  },
+  {
+   "px": [
+    985,
+    831,
+    1004,
+    856
+   ],
+   "block": "E",
+   "name": "Park E-5"
+  },
+  {
+   "px": [
+    1096,
+    845,
+    1113,
+    858
+   ],
+   "block": "E",
+   "name": "Park E-5"
+  },
+  {
+   "px": [
+    880,
+    849,
+    901,
+    868
+   ],
+   "block": "F"
+  },
+  {
+   "px": [
+    1083,
+    910,
+    1097,
+    920
+   ],
+   "block": "E",
+   "name": "Park E-6"
+  },
+  {
+   "px": [
+    878,
+    911,
+    901,
+    938
+   ],
+   "block": "F"
+  },
+  {
+   "px": [
+    1330,
+    911,
+    1374,
+    937
+   ],
+   "block": "D",
+   "name": "Park D-6"
+  },
+  {
+   "px": [
+    1255,
+    980,
+    1280,
+    1019
+   ],
+   "block": "D",
+   "name": "Park D-7"
+  },
+  {
+   "px": [
+    879,
+    1053,
+    901,
+    1072
+   ],
+   "block": "F"
+  },
+  {
+   "px": [
+    208,
+    665,
+    224,
+    683
+   ],
+   "block": "F",
+   "name": "Park F-1"
+  },
+  {
+   "px": [
+    801,
+    665,
+    813,
+    699
+   ],
+   "block": "F",
+   "name": "Park F-2"
+  },
+  {
+   "px": [
+    1308,
+    394,
+    1357,
+    427
+   ],
+   "block": "C",
+   "name": "Park C-1"
+  }
+ ],
+ "facilities": [
+  {
+   "kind": "mosque",
+   "name": "Mosque (B, nalla park)",
+   "block": "B",
+   "px": [
+    1095,
+    113,
+    1104,
+    123
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (A north)",
+   "block": "A",
+   "px": [
+    810,
+    215,
+    824,
+    229
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (C-1)",
+   "block": "C",
+   "px": [
+    1310,
+    377,
+    1328,
+    392
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (E-5)",
+   "block": "E",
+   "px": [
+    985,
+    822,
+    996,
+    831
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (D-5)",
+   "block": "D",
+   "px": [
+    1260,
+    820,
+    1271,
+    830
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (D-6)",
+   "block": "D",
+   "px": [
+    1374,
+    911,
+    1385,
+    924
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (F-1)",
+   "block": "F",
+   "px": [
+    225,
+    665,
+    237,
+    680
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (F)",
+   "block": "F",
+   "px": [
+    595,
+    664,
+    606,
+    680
+   ]
+  },
+  {
+   "kind": "shrine",
+   "name": "Shrine (F, 1.40 kanal)",
+   "block": "F",
+   "px": [
+    595,
+    683,
+    606,
+    699
+   ]
+  },
+  {
+   "kind": "shrine",
+   "name": "Darbar (E)",
+   "block": "E",
+   "px": [
+    1198,
+    630,
+    1210,
+    642
+   ]
+  },
+  {
+   "kind": "cng",
+   "name": "CNG Pump",
+   "block": "D",
+   "px": [
+    1561,
+    498,
+    1576,
+    512
+   ]
+  }
+ ],
+ "context_labels": [
+  {
+   "name": "Motorway City",
+   "px": [
+    600,
+    340
+   ]
+  },
+  {
+   "name": "Samana",
+   "px": [
+    700,
+    800
+   ]
+  },
+  {
+   "name": "M-3 Motorway",
+   "px": [
+    900,
+    90
+   ]
+  }
+ ]
+}

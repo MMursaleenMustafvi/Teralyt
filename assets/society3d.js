@@ -16,6 +16,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { Sky } from 'three/addons/objects/Sky.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createMaterials, makeKit, buildLandmark, buildGate, rng } from './models3d.js';
 
@@ -25,10 +26,11 @@ const Y = { road: .04, mark: .075, curb: .18, lawn: .185, land: .19, plotBase: .
 const COLORS = {
   cls: { High: '#3fae5f', Medium: '#e0a93a', Low: '#c9573f' },
   stat: { Available: '#34c38f', Reserved: '#e0a93a', Sold: '#c9573f', Unknown: '#9aa5a0' },
-  sat: { built: '#9c8a72', vacant: '#ddd2b2' }
+  sat: { built: '#9c8a72', vacant: '#ddd2b2' },
+  size: { '5 Marla': '#8fd16a', '10 Marla': '#ee8fb8', '20 Marla': '#7fa6e6', 'Commercial': '#f0a040' }
 };
-const KIND_LABEL = { nala: 'Storm drain (nalla)', mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
-const KIND_COLOR = { nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
+const KIND_LABEL = { dispensary: 'Dispensary', homes: 'FDA City Homes', metro: 'Metro store', sewerage: 'Sewerage works', nala: 'Storm drain (nalla)', mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
+const KIND_COLOR = { dispensary: '#c3392b', homes: '#b5651d', metro: '#0b3a7a', sewerage: '#4a6a7a', nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
 
 export function Society3D(el, opts = {}) {
   opts = Object.assign({ dataUrl: 'data/', layer: 'cls', onPick: null, onHover: null, onStatus: null }, opts);
@@ -88,6 +90,13 @@ export function Society3D(el, opts = {}) {
   }));
   sky.renderOrder = -1000; sky.frustumCulled = false;
   scene.add(sky);
+  const physSky = new Sky();
+  physSky.scale.setScalar(15000); physSky.frustumCulled = false; physSky.renderOrder = -1001;
+  Object.assign(physSky.material, { depthWrite: false });
+  const su = physSky.material.uniforms;
+  su.turbidity.value = 5.5; su.rayleigh.value = 1.25; su.mieCoefficient.value = .004; su.mieDirectionalG.value = .82;
+  scene.add(physSky);
+  sky.visible = false;
   const stars = (() => {
     const r = rng(99), n = 1600, p = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { const u = r() * 2 * PI, v = Math.acos(1 - r() * .95); p.set([Math.sin(v) * Math.cos(u) * 17000, Math.cos(v) * 17000, Math.sin(v) * Math.sin(u) * 17000], i * 3); }
@@ -96,7 +105,8 @@ export function Society3D(el, opts = {}) {
     s.renderOrder = -999; s.frustumCulled = false; s.visible = false; return s;
   })();
   scene.add(stars);
-  scene.fog = new THREE.Fog('#dbe8f2', 2600, 12500);
+  scene.fog = new THREE.Fog('#c9d6df', 3200, 14000);
+  su.sunPosition.value.copy(SUN_DIR);
 
   // post-processing (used at night for glowing lights)
   let composer = null, bloom = null;
@@ -147,7 +157,8 @@ export function Society3D(el, opts = {}) {
   const trees = { round: [], cone: [], palm: [] }, lamps = { street: [], park: [] }, staticCars = [];
   const flags = [], nightSigns = [];
   let plotMesh = null, plotGeom = null, plotLines = null, carSystem = null, frames = 0, built = false;
-  let homeTarget = new THREE.Vector3(), homeDist = 2600, axisRad = 0, boundaryPlan = null;
+  let homeTarget = new THREE.Vector3(), homeDist = 2600, axisRad = 0, boundaryPlan = null, blockCentres = null;
+  api.filter = { sizes: null, statuses: null, block: null };
 
   const hooks = {
     tree(group, x, z, type, s) { const v = group.localToWorld(new THREE.Vector3(x, 0, z)); trees[type in trees ? type : 'round'].push([v.x, v.y, v.z, s]); },
@@ -160,12 +171,15 @@ export function Society3D(el, opts = {}) {
   async function build() {
     status('loading', 'Loading map data…');
     const get = n => fetch(opts.dataUrl + n + '.geojson', { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(n + '.geojson: HTTP ' + r.status); return r.json(); });
-    const [boundary, roads, surface, outer, land, landmarks, plots, water] = await Promise.all(['boundary', 'roads', 'road_surface', 'outer_roads', 'blocks', 'landmarks', 'plots', 'water'].map(n => get(n).catch(e => { if (n === 'water') return { features: [] }; throw e; })));
+    const optional = ['water', 'context'];
+    const [boundary, roads, surface, outer, land, landmarks, plots, water, context] = await Promise.all(['boundary', 'roads', 'road_surface', 'outer_roads', 'blocks', 'landmarks', 'plots', 'water', 'context'].map(n => get(n).catch(e => { if (optional.includes(n)) return { features: [] }; throw e; })));
+    api._context = context.features;
     const bp = boundary.features[0].properties;
     LON0 = bp.centre_lon; LAT0 = bp.centre_lat;
     axisRad = (bp.axis_deg || 0) * PI / 180;
     api.society = { name: bp.name, area_km2: bp.area_km2, source: bp.source };
     boundaryPlan = ringPlan(boundary.features[0].geometry.coordinates[0]);
+    if (bp.blocks) { blockCentres = {}; for (const b in bp.blocks) blockCentres[b] = P(...bp.blocks[b]); }
 
     status('loading', 'Building ground, roads and parcels…'); await tick();
     // countryside
@@ -437,7 +451,17 @@ export function Society3D(el, opts = {}) {
     }).catch(() => {});
   }
   const grid = new Map(), CELL = 60, gridKey = (x, y) => Math.floor(x / CELL) + ',' + Math.floor(y / CELL);
+  const DIM = new THREE.Color('#8a8578');
+  function passes(p) {
+    const f = api.filter;
+    if (f.sizes && !f.sizes.has(p.size)) return false;
+    if (f.statuses && !f.statuses.has(p.status)) return false;
+    if (f.block && !p.block.endsWith(' ' + f.block)) return false;
+    return true;
+  }
   function plotColor(p, layer) {
+    if (!passes(p)) return DIM.clone();
+    if (layer === 'size') return new THREE.Color(COLORS.size[p.size] || '#cccccc');
     if (layer === 'sat') return new THREE.Color(p.built ? COLORS.sat.built : COLORS.sat.vacant);
     const c = new THREE.Color(layer === 'stat' ? (COLORS.stat[p.status] || COLORS.stat.Unknown) : (COLORS.cls[p.dev_class] || COLORS.cls.Low));
     return p.built ? c : c.lerp(new THREE.Color('#e9e1c8'), .38);
@@ -553,7 +577,13 @@ export function Society3D(el, opts = {}) {
     }
     const sums = {};
     for (const p of api.plots) { const s = sums[p.block] || (sums[p.block] = [0, 0, 0]); s[0] += p._c[0]; s[1] += p._c[1]; s[2]++; }
-    for (const b in sums) { const s = sums[b], o = label(b.toUpperCase(), 's3d-blk'); o.position.set(s[0] / s[2], 70, -s[1] / s[2]); scene.add(o); blockLabels.push(o); }
+    for (const b in sums) {
+      const L = b.slice(-1), s = sums[b], c = blockCentres && blockCentres[L] ? blockCentres[L] : [s[0] / s[2], s[1] / s[2]];
+      const o = label(b.toUpperCase(), 's3d-blk'); o.position.set(c[0], 70, -c[1]); o.userData.block = L; scene.add(o); blockLabels.push(o);
+      o.element.style.pointerEvents = 'auto'; o.element.style.cursor = 'pointer';
+      o.element.addEventListener('click', e => { e.stopPropagation(); flyToBlock(L); if (opts.onBlock) opts.onBlock(blockStats(L)); });
+    }
+    for (const f of api._context || []) { const [e, n] = P(...f.geometry.coordinates), o = label(f.properties.name, 's3d-ctx'); o.position.set(e, 40, -n); scene.add(o); blockLabels.push(o); }
     for (let i = 0; i < 160; i++) { const o = label('', 's3d-pn'); o.visible = false; scene.add(o); plotLabelPool.push(o); }
   }
   let lastPlotLabelUpdate = 0;
@@ -679,6 +709,7 @@ export function Society3D(el, opts = {}) {
   function flyToBlock(letter) {
     const ps = api.plots.filter(p => p.block.endsWith(' ' + String(letter).toUpperCase())); if (!ps.length) return false;
     let x = 0, y = 0; for (const p of ps) { x += p._c[0]; y += p._c[1]; } x /= ps.length; y /= ps.length;
+    const L = String(letter).toUpperCase(); if (blockCentres && blockCentres[L]) [x, y] = blockCentres[L];
     let r = 0; for (const p of ps) r = Math.max(r, Math.hypot(p._c[0] - x, p._c[1] - y));
     flyTo(new THREE.Vector3(x, 0, -y), Math.max(350, r * 1.9), .85);
     return true;
@@ -720,22 +751,79 @@ export function Society3D(el, opts = {}) {
     scene.environmentIntensity = night ? .06 : .45;
     skyU.top.value.set(night ? '#060b1a' : '#5d93d6'); skyU.hor.value.set(night ? '#1b2440' : '#dbe8f2'); skyU.bot.value.set(night ? '#0d0f14' : '#c9c3b1');
     scene.fog.color.set(night ? '#141b30' : '#dbe8f2');
-    stars.visible = night;
+    stars.visible = night; sky.visible = night; physSky.visible = !night;
     for (const m of M.night) m.emissiveIntensity = night ? (m === M.lampOn ? 4 : 1.3) : 0;
     for (const m of nightSigns) m.emissiveIntensity = night ? .7 : 0;
     M.water.emissiveIntensity = night ? .9 : .35;
     renderer.toneMappingExposure = night ? 1.1 : 1.0;
     if (night) ensureComposer();
   }
-  let satTex = null;
-  async function setGround(kind) {
+  // ---- streamed satellite ground (Esri World Imagery, quadtree level of detail) -----------
+  const TILE_URL = (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  const tileGroup = new THREE.Group(); tileGroup.visible = false; scene.add(tileGroup);
+  const tileUnder = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), new THREE.MeshLambertMaterial({ color: '#77735c' }));
+  tileUnder.rotation.x = -PI / 2; tileUnder.position.y = -.4; tileUnder.receiveShadow = true; tileGroup.add(tileUnder);
+  const tiles = new Map(); let tileLoads = 0, tileTick = 0;
+  const tileGeo = new THREE.PlaneGeometry(1, 1); tileGeo.rotateX(-PI / 2);
+  const _fr = new THREE.Frustum(), _pm = new THREE.Matrix4(), _bx = new THREE.Box3();
+  const t2lon = (x, z) => x / 2 ** z * 360 - 180, t2lat = (y, z) => Math.atan(Math.sinh(PI * (1 - 2 * y / 2 ** z))) * 180 / PI;
+  function tileRect(z, x, y) { const [e0, n1] = P(t2lon(x, z), t2lat(y, z)), [e1, n0] = P(t2lon(x + 1, z), t2lat(y + 1, z)); return [e0, n0, e1, n1]; }
+  function getTile(z, x, y) {
+    const key = z + '/' + x + '/' + y; let t = tiles.get(key);
+    if (t) return t;
+    const [e0, n0, e1, n1] = tileRect(z, x, y);
+    const mat = new THREE.MeshLambertMaterial({ color: '#c8c8c8', polygonOffset: true, polygonOffsetFactor: -z, polygonOffsetUnits: -z * 2 });
+    const mesh = new THREE.Mesh(tileGeo, mat); mesh.scale.set(e1 - e0, 1, n1 - n0); mesh.position.set((e0 + e1) / 2, .02, -(n0 + n1) / 2);
+    mesh.receiveShadow = true; mesh.visible = false; mesh.renderOrder = -10 + z; tileGroup.add(mesh);
+    t = { key, z, x, y, mesh, loaded: false, loading: false, failed: false, used: 0, box: new THREE.Box3(new THREE.Vector3(e0, -1, -n1), new THREE.Vector3(e1, 40, -n0)) };
+    tiles.set(key, t); return t;
+  }
+  function loadTile(t) {
+    if (t.loading || t.loaded || t.failed || tileLoads >= 10) return;
+    t.loading = true; tileLoads++;
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    im.onload = () => { const tex = new THREE.Texture(im); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.needsUpdate = true; t.mesh.material.map = tex; t.mesh.material.needsUpdate = true; t.loaded = true; t.loading = false; tileLoads--; };
+    im.onerror = () => { t.failed = true; t.loading = false; tileLoads--; };
+    im.src = TILE_URL(t.z, t.x, t.y);
+  }
+  function updateTiles() {
+    _pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); _fr.setFromProjectionMatrix(_pm);
+    const want = [], cam = camera.position;
+    const z0 = 13, cLon = LON0, cLat = LAT0, n0 = 2 ** z0;
+    const cx = Math.floor((cLon + 180) / 360 * n0), cy = Math.floor((1 - Math.log(Math.tan(cLat * PI / 180) + 1 / Math.cos(cLat * PI / 180)) / PI) / 2 * n0);
+    const visit = (z, x, y) => {
+      const t = getTile(z, x, y);
+      if (!_fr.intersectsBox(t.box)) return;
+      const [e0, n0_, e1, n1] = tileRect(z, x, y), size = e1 - e0;
+      const dx = Math.max(e0 - cam.x, 0, cam.x - e1), dz = Math.max(-n1 - cam.z, 0, cam.z + n0_), d = Math.hypot(dx, dz, cam.y);
+      if (z < 19 && size / Math.max(d, 1) > .5) { for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) visit(z + 1, x * 2 + a, y * 2 + b); }
+      else want.push(t);
+    };
+    for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) visit(z0, cx + i, cy + j);
+    const show = new Set(); tileTick++;
+    for (const t of want) {
+      t.used = tileTick;
+      if (t.loaded) { show.add(t); continue; }
+      loadTile(t);
+      let z = t.z, x = t.x, y = t.y;           // show the nearest loaded ancestor meanwhile
+      while (z > z0) { z--; x >>= 1; y >>= 1; const a = tiles.get(z + '/' + x + '/' + y); if (a && a.loaded) { a.used = tileTick; show.add(a); break; } if (a) loadTile(a); }
+    }
+    for (const t of tiles.values()) t.mesh.visible = show.has(t);
+    if (tiles.size > 420) {
+      const old = [...tiles.values()].filter(t => !show.has(t) && !t.loading).sort((a, b) => a.used - b.used).slice(0, tiles.size - 360);
+      for (const t of old) { if (t.mesh.material.map) t.mesh.material.map.dispose(); t.mesh.material.dispose(); tileGroup.remove(t.mesh); tiles.delete(t.key); }
+    }
+    api.tileStats = { want: want.length, shown: show.size, cached: tiles.size, loading: tileLoads };
+  }
+  function setGround(kind) {
     api.ground = kind === 'satellite' ? 'satellite' : 'plan';
     const sat = api.ground === 'satellite';
-    if (sat && !layers.satellite) { status('loading', 'Loading satellite imagery…'); try { layers.satellite = await satelliteGround(); } catch (e) { console.warn(e); status('ready'); api.ground = 'plan'; return 'plan'; } status('ready'); }
     for (const o of layers.stylised) if (o) o.visible = !sat;
-    if (layers.satellite) layers.satellite.visible = sat;
-    plotMesh.material.transparent = sat; plotMesh.material.opacity = sat ? .55 : 1; plotMesh.material.depthWrite = !sat; plotMesh.material.needsUpdate = true;
-    return api.ground;
+    tileGroup.visible = sat;
+    if (sat) updateTiles();
+    plotMesh.material.transparent = sat; plotMesh.material.opacity = sat ? .36 : 1; plotMesh.material.depthWrite = !sat; plotMesh.material.needsUpdate = true;
+    plotLines.material.color.set(sat ? '#fff6dc' : '#3d3024'); plotLines.material.opacity = sat ? .75 : .45;
+    return Promise.resolve(api.ground);
   }
   async function satelliteGround() {
     // Esri World Imagery tiles stitched into one texture over the society (+ margin)
@@ -762,6 +850,18 @@ export function Society3D(el, opts = {}) {
   }
   function setLabels(on) { api.labels = !!on; if (!api.labels) for (const o of [...lmLabels, ...blockLabels, ...plotLabelPool]) o.visible = false; lastPlotLabelUpdate = 0; }
   function setLayer(layer) { if (!COLORS[layer] || !plotGeom) { api.layer = layer; return; } api.layer = layer; recolor(); }
+  function setFilter(f) {
+    api.filter = Object.assign({}, api.filter, f);
+    if (plotGeom) recolor();
+    return api.plots.filter(passes).length;
+  }
+  function blockStats(letter) {
+    const ps = api.plots.filter(p => p.block.endsWith(' ' + letter)), by = k => ps.reduce((m, p) => (m[p[k]] = (m[p[k]] || 0) + 1, m), {});
+    const lms = api.landmarks.filter(l => l.block === 'Block ' + letter);
+    return { block: letter, plots: ps.length, size: by('size'), status: by('status'), dev_class: by('dev_class'),
+      parks: lms.filter(l => l.kind === 'park').length, mosques: lms.filter(l => l.kind === 'mosque').length,
+      facilities: lms.filter(l => !['park', 'mosque'].includes(l.kind)).map(l => l.name) };
+  }
 
   // ---- mini-map and compass ----------------------------------------------------------
   let mini = null;
@@ -805,14 +905,16 @@ export function Society3D(el, opts = {}) {
     if (composer) { composer.setSize(w, h); bloom.setSize(w, h); }
   }
   new ResizeObserver(resize).observe(el); resize();
-  let last = performance.now(), lastMini = 0, shadowD = 0;
+  let last = performance.now(), lastMini = 0, shadowD = 0, lastTiles = 0;
   function loop(now) {
     requestAnimationFrame(loop);
     if (document.hidden) return;
     const dt = Math.min(.1, (now - last) / 1000); last = now;
     stepFlight(now);
     controls.update();
-    sky.position.copy(camera.position); stars.position.copy(camera.position);
+    sky.position.copy(camera.position); stars.position.copy(camera.position); physSky.position.copy(camera.position);
+    if (tileGroup.visible && now - lastTiles > 250) { lastTiles = now; updateTiles(); }
+    if (M.water.normalMap) { M.water.normalMap.offset.x += dt * .018; M.water.normalMap.offset.y += dt * .011; }
     // shadow frustum follows the view
     const t = controls.target, dist = camera.position.distanceTo(t), d = Math.max(110, Math.min(2600, dist * 1.05));
     if (Math.abs(d - shadowD) / d > .06) { shadowD = d; const sc = sun.shadow.camera; sc.left = -d; sc.right = d; sc.top = d; sc.bottom = -d; sc.near = 10; sc.far = d * 4 + 3000; sc.updateProjectionMatrix(); }
@@ -832,7 +934,7 @@ export function Society3D(el, opts = {}) {
   requestAnimationFrame(loop);
 
   Object.assign(api, {
-    setLayer, setTime, setGround, setLabels, select, selectLandmark, clearSelection, reset, flyToBlock, search,
+    setLayer, setTime, setGround, setLabels, setFilter, blockStats, select, selectLandmark, clearSelection, reset, flyToBlock, search, flyTo: (e, n, dist, polar, az, dur) => flyTo(new THREE.Vector3(e, 0, -n), dist, polar, az, dur),
     zoomIn: () => zoomBy(1.7), zoomOut: () => zoomBy(1 / 1.7),
     get: id => { const p = byId.get(+id); return p ? publicProps(p) : null; },
     getLandmark: id => { const lm = lmById.get(+id); return lm ? publicLm(lm) : null; },
@@ -875,6 +977,7 @@ function injectCss() {
 .s3d-lbl{pointer-events:auto;cursor:pointer;background:rgba(20,14,9,.82);color:#f3ead8;border-left:3px solid var(--k,#7bd08b);padding:3px 8px;border-radius:6px;font:600 11.5px "Plus Jakarta Sans","Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.35);transform:translateY(-6px)}
 .s3d-lbl:hover{background:#2a1f15}
 .s3d-blk{color:#f3ead8;font:800 20px "Plus Jakarta Sans","Segoe UI",sans-serif;letter-spacing:.06em;text-shadow:0 2px 8px rgba(0,0,0,.85),0 0 2px #000}
+.s3d-ctx{color:#fff8e6;font:700 13px "Plus Jakarta Sans","Segoe UI",sans-serif;letter-spacing:.12em;text-transform:uppercase;text-shadow:0 1px 6px rgba(0,0,0,.9);opacity:.85}
 .s3d-pn{color:#1d150d;background:rgba(243,234,216,.86);font:700 9.5px "Segoe UI",sans-serif;padding:0 3px;border-radius:3px}
 .s3d-mini{position:absolute;right:14px;bottom:12px;border-radius:14px;overflow:hidden;border:1px solid rgba(227,207,165,.25);box-shadow:0 10px 24px rgba(0,0,0,.45);cursor:crosshair;z-index:3}
 .s3d-mini canvas{display:block}
