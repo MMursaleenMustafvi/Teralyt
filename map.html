@@ -29,7 +29,7 @@
 <div class="blk">Jump to block <button class="btn o" data-b="A">A</button><button class="btn o" data-b="B">B</button><button class="btn o" data-b="C">C</button><button class="btn o" data-b="D">D</button><button class="btn o" data-b="E">E</button><button class="btn o" data-b="F">F</button></div>
 <div class="grid" style="grid-template-columns:minmax(0,2.4fr) minmax(280px,1fr)"><div class="stage" id="stage"><div id="model"></div><div id="cesium" hidden></div><div class="st" id="st"><div><span class="sp"></span>Starting 3D view…</div></div><div id="tip" hidden></div><span class="hint" id="hint">Plots: tall edge = built · faded = vacant</span><div class="attr" id="attr" hidden>Satellite imagery © Esri, Maxar, Earthstar Geographics</div><div class="leg" id="lg"></div></div>
 <div class="card" id="side"></div></div>
-<div class="note"><b>Data sources.</b> Society boundary and road centrelines: OpenStreetMap (georeferenced). Road widths, parcels, landmark positions and plots follow the official FDA City block maps and are marked <em>approximate</em>. Plot status, development class and heights are sample values. Landmark buildings are illustrative 3D models of the facilities on the official map. Real records and the AI/ML model output will replace the samples without changing the map code.</div></div>
+<div class="note"><b>Data sources.</b> Society boundary and road centrelines: OpenStreetMap (georeferenced). The Barani Nala storm drain is traced from satellite imagery. Road widths, parcels, landmark positions and plots follow the official FDA City block maps and are marked <em>approximate</em>. Plot status, development class and heights are sample values. Landmark buildings are illustrative 3D models of the facilities on the official map. Real records and the AI/ML model output will replace the samples without changing the map code.</div></div>
 <script type="module">
 import { Society3D } from './assets/society3d.js';
 const LG={cls:[['#3fae5f','High'],['#e0a93a','Medium'],['#c9573f','Low']],stat:[['#34c38f','Available'],['#e0a93a','Reserved'],['#c9573f','Sold'],['#9aa5a0','Unknown']],sat:[['#9c8a72','Built'],['#ddd2b2','Vacant']]};
@@ -38,7 +38,7 @@ let layer='cls',view='model',model=null,earth=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function leg(){L.innerHTML=LG[layer].map(x=>'<span><i style="background:'+x[0]+'"></i>'+x[1]+'</span>').join('')}leg();
 function setStatus(state,msg){if(state==='ready'){st.hidden=true;return}st.hidden=false;st.className='st '+state;st.innerHTML=state==='error'?'<div><b>3D map unavailable</b>'+esc(msg)+'</div>':'<div><span class="sp"></span>'+esc(msg)+'</div>'}
-const QUICK=[['Jamia Mosque (B)','Mosque'],['Govt. Primary School (E)','School'],['FDA City Hospital','Hospital'],['Clock Tower Roundabout','Clock Tower'],['Proposed Cricket Stadium','Stadium'],['FDA City Main Gate','Main gate'],['Grid Station','Grid station'],['Park D-3','Park']];
+const QUICK=[['Barani Nala','Nalla'],['Jamia Mosque (B)','Mosque'],['Govt. Primary School (E)','School'],['FDA City Hospital','Hospital'],['Clock Tower Roundabout','Clock Tower'],['Proposed Cricket Stadium','Stadium'],['FDA City Main Gate','Main gate'],['Grid Station','Grid station'],['Park D-3','Park']];
 function idle(){
   const n=model&&model.plots?model.plots.length.toLocaleString():'…',m=model&&model.landmarks?model.landmarks.length:'…';
   side.innerHTML='<h3>Select a plot or building</h3><p class="mut">Click any plot, mosque, school, park or other building on the map, or search above, to see its details.</p><div class="prov"><span><b>Society</b> FDA City, Faisalabad</span><span><b>Plots</b> '+n+'</span><span><b>Landmarks</b> '+m+'</span><span><b>Blocks</b> A–F</span></div>'
@@ -51,8 +51,8 @@ function pick(p){
   if(p.landmark){
     side.innerHTML='<h3>'+esc(p.name)+'</h3><p class="mut">'+esc(p.type_label)+(p.block?' · '+esc(p.block):'')+(p.area_kanal?' · about '+p.area_kanal+' kanal':'')+'</p>'
     +(p.proposed?'<div class="note">Proposed facility shown on the official FDA City map. It is not built yet.</div>':'')
-    +'<table class="kv2"><tr><th>Facility</th><td>'+esc(p.type_label)+'</td></tr>'+(p.block?'<tr><th>Block</th><td>'+esc(p.block)+'</td></tr>':'')+(p.area_kanal?'<tr><th>Site area</th><td>about '+p.area_kanal+' kanal ('+Math.round(p.area_kanal*505.857).toLocaleString()+' m²)</td></tr>':'')+(p.height_m?'<tr><th>Model height</th><td>about '+p.height_m+' m</td></tr>':'')+'<tr><th>Position</th><td>'+esc(p.accuracy)+'</td></tr></table>'
-    +'<p class="mut" style="font-size:12.5px;margin-top:12px">'+esc(p.source)+'. The 3D building is an illustrative model of the facility, not a survey of the real structure.</p>';
+    +'<table class="kv2"><tr><th>Facility</th><td>'+esc(p.type_label)+'</td></tr>'+(p.block?'<tr><th>Block</th><td>'+esc(p.block)+'</td></tr>':'')+(p.area_kanal?'<tr><th>Site area</th><td>about '+p.area_kanal+' kanal ('+Math.round(p.area_kanal*505.857).toLocaleString()+' m²)</td></tr>':'')+(p.height_m?'<tr><th>Model height</th><td>about '+p.height_m+' m</td></tr>':'')+(p.length_m?'<tr><th>Length in society</th><td>about '+(p.length_m/1000).toFixed(1)+' km</td></tr>':'')+'<tr><th>Position</th><td>'+esc(p.accuracy)+'</td></tr></table>'
+    +'<p class="mut" style="font-size:12.5px;margin-top:12px">'+esc(p.source)+'. '+(p.kind==='nala'?'The channel is drawn at about 7 m wide with banks, and with bridges where roads cross it. No plots are placed on it or its banks.':'The 3D building is an illustrative model of the facility, not a survey of the real structure.')+'</p>';
     return;
   }
   const unk=p.status==='Unknown',bld=p.built?(p.storeys+(p.storeys>1?' storeys':' storey')+' · '+p.height+' m ('+esc(p.height_source)+')'):'Vacant plot';
@@ -89,7 +89,7 @@ async function openEarth(){
   try{await loadScript(CES+'Cesium.js')}catch(e){setStatus('error','CesiumJS did not load from the CDN. Check the internet connection.');return null}
   try{await loadScript('assets/config.js')}catch(e){}
   await loadScript('assets/map3d.js');
-  earth=window.Map3D('cesium',{onPick:pick,onHover:hover,onStatus:(s,m)=>{if(view==='earth')setStatus(s,m)},layer});
+  earth=window.Map3D('cesium',{onPick:pick,onHover:hover,onStatus:(s,m)=>{if(view==='earth')setStatus(s,m)},layer});window.__earth=earth;
   return earth;
 }
 async function switchView(v){
