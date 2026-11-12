@@ -1,28 +1,38 @@
-"""Generate Terralyt map data for FDA City (Faisalabad) from OpenStreetMap.
+"""Generate Terralyt map data for FDA City (Faisalabad).
 
-Real geometry: the society boundary and every road come from OpenStreetMap
-(tools/source/osm_fda_city.json, Overpass export of OSM way 287541676 and the
-highways inside it).  City blocks are computed by polygonising the road network.
+Real geometry (accuracy="georeferenced"):
+  * society boundary and every road centreline come from OpenStreetMap
+    (tools/source/osm_fda_city.json, Overpass export of OSM way 287541676 and the
+    highways inside it). Roundabouts are the OSM junction=roundabout rings.
 
-Approximate geometry: plots are generated inside each block at the official
-FDA City plot sizes (5 Marla 28x50 ft, 10 Marla 39x70 ft, 20 Marla 54x100 ft).
-Plot numbers, block letters, parks, status, class and heights are SAMPLE values
-with a fixed seed.  Every feature carries accuracy="approximate" until surveyed
-or georeferenced data replaces it.  The map code must not depend on sample-ness.
+Derived geometry (accuracy="approximate"):
+  * road surfaces use the official FDA City road widths (202 ft boulevard,
+    60/85 ft collectors, 40 ft streets) buffered around the OSM centrelines;
+  * land parcels are the faces of the road network minus the road surfaces;
+  * landmarks follow the official FDA City block maps: every block gets its
+    Jamia Mosque, Primary School, Playground, Commercial Centre and numbered
+    parks; the hospital / sports complex / public building ("Area for FDA City
+    Homes"), the proposed university, cricket stadium and IMAX theatre, the
+    multi-purpose zone, grid station, graveyard, CNG station, shrine and the
+    main gate are placed where the brochure shows them. Positions are
+    approximate until a surveyed layout replaces them;
+  * plots fill the remaining parcels at the official sizes
+    (5 Marla 28x50 ft, 10 Marla 39x70 ft, 20 Marla 54x100 ft, commercial 30x60 ft).
+    Plot numbers, status, class and heights are SAMPLE values (fixed seed).
 
-usage (from repo root):  python -I tools/make_data.py [--preview out.png]
-writes data/boundary.geojson, roads.geojson, blocks.geojson, parks.geojson, plots.geojson
+usage (from the repo root):  python -I tools/make_data.py [--preview out.png]
+writes data/boundary, roads, road_surface, outer_roads, blocks (land parcels), landmarks,
+parks (landmark footprints for the CesiumJS view) and plots, all .geojson
 """
 import argparse
 import hashlib
 import json
 import math
 import os
-import sys
 
 from shapely import affinity
-from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box, mapping
-from shapely.ops import polygonize, unary_union
+from shapely.geometry import LineString, MultiLineString, Point, Polygon, box
+from shapely.ops import linemerge, polygonize, unary_union
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -30,11 +40,13 @@ SRC = os.path.join(HERE, "source", "osm_fda_city.json")
 OUT = os.path.join(ROOT, "data")
 BOUNDARY_ID = 287541676
 
-# local metric frame (equirectangular, fine for a 4 km site)
+# local metric frame (equirectangular; fine for a 3 km site). JS uses the same constants.
+LAT_REF = 31.525
 LAT0, LON0 = 31.5136158, 73.0742353
 MLAT = 111320.0
-MLON = 111320.0 * math.cos(math.radians(31.525))
+MLON = 111320.0 * math.cos(math.radians(LAT_REF))
 FT = 0.3048
+KANAL = 505.857  # m2
 
 SIZES = {  # name: (frontage m, depth m)
     "5 Marla": (28 * FT, 50 * FT),
@@ -42,13 +54,25 @@ SIZES = {  # name: (frontage m, depth m)
     "20 Marla": (54 * FT, 100 * FT),
     "Commercial": (30 * FT, 60 * FT),
 }
-ROAD_WIDTH = {"main": 22.0, "arterial": 16.0, "residential": 10.0}
-LANE = 8.0          # internal service lane between back-to-back plot rows
-INSET = 6.0         # plot setback from road centreline beyond half the road width
+WIDTH = {  # carriageway width in metres
+    "main": 11.0,          # each one-way carriageway of the 202 ft boulevard
+    "collector": 60 * FT,  # 60 / 85 ft collector roads
+    "residential": 40 * FT,
+    "roundabout": 12.0,
+    "arterial": 14.0,      # Samaana Road
+}
+SIDEWALK = 2.5
+LANE = 6.0  # service lane between back-to-back plot rows
+
+# Official layout facts used to place landmarks (from the FDA City block maps)
+PARKS_PER_BLOCK = {"A": 4, "B": 4, "C": 6, "D": 7, "E": 6, "F": 3}
+COMPLEX_SPLIT = [("playground", 0.46), ("school", 0.26), ("mosque", 0.14), ("commercial", 0.14)]
+COMPLEX_NAMES = {"playground": "Playground {b}", "school": "Govt. Primary School ({b})",
+                 "mosque": "Jamia Mosque ({b})", "commercial": "Commercial Centre ({b})"}
 
 
 def ll(x, y):
-    return (round(LON0 + x / MLON, 6), round(LAT0 + y / MLAT, 6))
+    return (round(LON0 + x / MLON, 7), round(LAT0 + y / MLAT, 7))
 
 
 def xy(p):
@@ -56,58 +80,91 @@ def xy(p):
 
 
 def h01(*parts):
-    """Deterministic pseudo-random in [0,1) from a key."""
     h = hashlib.md5("|".join(str(p) for p in parts).encode()).digest()
     return int.from_bytes(h[:4], "big") / 2**32
 
 
-def geom_ll(g):
-    """Shapely geometry in local metres -> GeoJSON geometry in lon/lat."""
+def polys(g):
+    if g is None or g.is_empty:
+        return []
     if g.geom_type == "Polygon":
-        rings = [[ll(*c) for c in g.exterior.coords]] + [[ll(*c) for c in r.coords] for r in g.interiors]
-        return {"type": "Polygon", "coordinates": rings}
-    if g.geom_type == "LineString":
-        return {"type": "LineString", "coordinates": [ll(*c) for c in g.coords]}
-    if g.geom_type == "MultiPolygon":
+        return [g]
+    if hasattr(g, "geoms"):
+        return [p for q in g.geoms for p in polys(q)]
+    return []
+
+
+def largest_polygon(g):
+    ps = polys(g)
+    return max(ps, key=lambda p: p.area) if ps else None
+
+
+def geom_ll(g):
+    t = g.geom_type
+    if t == "Polygon":
+        return {"type": "Polygon", "coordinates": [[ll(*c) for c in g.exterior.coords]] + [[ll(*c) for c in r.coords] for r in g.interiors]}
+    if t == "MultiPolygon":
         return {"type": "MultiPolygon", "coordinates": [geom_ll(p)["coordinates"] for p in g.geoms]}
-    raise ValueError(g.geom_type)
+    if t == "LineString":
+        return {"type": "LineString", "coordinates": [ll(*c) for c in g.coords]}
+    if t == "Point":
+        return {"type": "Point", "coordinates": ll(g.x, g.y)}
+    raise ValueError(t)
 
 
 def feature(g, props):
     return {"type": "Feature", "geometry": geom_ll(g), "properties": props}
 
 
-def write(name, feats, extra=None):
+def write(out, name, feats, extra=None):
     fc = {"type": "FeatureCollection", "name": name, "crs_note": "EPSG:4326 (WGS84 lon/lat)"}
     if extra:
         fc.update(extra)
     fc["features"] = feats
-    path = os.path.join(OUT, name + ".geojson")
+    path = os.path.join(out, name + ".geojson")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(fc, f, separators=(",", ":"))
     print(f"  {name}.geojson: {len(feats)} features, {os.path.getsize(path)//1024} KB")
 
 
-def largest_polygon(g):
-    if g.is_empty:
-        return None
-    if g.geom_type == "Polygon":
-        return g
-    if g.geom_type in ("MultiPolygon", "GeometryCollection"):
-        polys = [p for p in g.geoms if p.geom_type == "Polygon" and not p.is_empty]
-        return max(polys, key=lambda p: p.area) if polys else None
-    return None
+def obb(poly):
+    """Oriented box: centre (lon,lat), long-axis angle in degrees (east = 0, CCW), length, width."""
+    mrr = poly.minimum_rotated_rectangle
+    cs = list(mrr.exterior.coords)
+    e0 = math.dist(cs[0], cs[1])
+    e1 = math.dist(cs[1], cs[2])
+    a, b = (cs[0], cs[1]) if e0 >= e1 else (cs[1], cs[2])
+    ang = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+    ang = (ang + 90) % 180 - 90  # keep in [-90, 90)
+    c = mrr.centroid
+    return {"lon": ll(c.x, c.y)[0], "lat": ll(c.x, c.y)[1], "angle": round(ang, 2), "length": round(max(e0, e1), 1), "width": round(min(e0, e1), 1)}
+
+
+def split_along(poly, fracs, gap=4.0):
+    """Cut a polygon into strips across its long axis, sized by fracs."""
+    o = obb(poly)
+    c = poly.centroid
+    rot = affinity.rotate(poly, -o["angle"], origin=c)
+    minx, miny, maxx, maxy = rot.bounds
+    L = maxx - minx
+    parts, x = [], minx
+    for i, f in enumerate(fracs):
+        x1 = maxx if i == len(fracs) - 1 else x + L * f
+        cell = box(x + (gap / 2 if i else 0), miny - 1, x1 - (gap / 2 if i < len(fracs) - 1 else 0), maxy + 1)
+        pg = largest_polygon(cell.intersection(rot))
+        parts.append(affinity.rotate(pg, o["angle"], origin=c) if pg is not None else None)
+        x = x1
+    return parts
 
 
 def main():
-    global OUT
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=SRC)
     ap.add_argument("--out", default=OUT)
-    ap.add_argument("--preview", default=None, help="write a PNG preview of the generated data")
+    ap.add_argument("--preview", default=None)
     args = ap.parse_args()
-    OUT = args.out
-    os.makedirs(OUT, exist_ok=True)
+    out = args.out
+    os.makedirs(out, exist_ok=True)
 
     data = json.load(open(args.src, encoding="utf-8-sig"))
     els = data["elements"]
@@ -116,24 +173,28 @@ def main():
     B = Polygon([xy(p) for p in bnd["geometry"]])
     print(f"boundary: {B.area/1e6:.2f} km2, {len(roads)} OSM roads")
 
-    # --- main axis from the two roundabouts (SW -> NE) -----------------------
-    rbs = [LineString([xy(p) for p in e["geometry"]]).centroid for e in roads if e["tags"].get("junction") == "roundabout"]
-    rbs.sort(key=lambda p: p.x)
-    r1, r2 = rbs[0], rbs[-1]
+    # ---- roundabouts and main axis -------------------------------------------------
+    rings = [e for e in roads if e["tags"].get("junction") == "roundabout"]
+    rbs = []
+    for e in rings:
+        pts = [xy(p) for p in e["geometry"]]
+        pg = Polygon(pts)
+        c = pg.centroid
+        r = sum(math.dist((c.x, c.y), p) for p in pts) / len(pts)
+        rbs.append({"c": c, "r": r, "poly": pg, "id": e["id"]})
+    rbs.sort(key=lambda d: d["c"].x)
+    r1, r2 = rbs[0]["c"], rbs[-1]["c"]
     dx, dy = r2.x - r1.x, r2.y - r1.y
-    L = math.hypot(dx, dy)
-    ax, ay = dx / L, dy / L          # along the main road, SW -> NE
-    nx, ny = -ay, ax                 # normal, pointing NW
-    u2 = L                           # u of the second roundabout
-    main_line = LineString([(r1.x - 3000 * ax, r1.y - 3000 * ay), (r2.x + 3000 * ax, r2.y + 3000 * ay)]).intersection(B.buffer(60))
+    Lr = math.hypot(dx, dy)
+    ax, ay = dx / Lr, dy / Lr
+    nx, ny = -ay, ax
+    axis_line = LineString([(r1.x - 4000 * ax, r1.y - 4000 * ay), (r2.x + 4000 * ax, r2.y + 4000 * ay)])
+    axis_deg = math.degrees(math.atan2(ay, ax))
 
     def uv(p):
         px, py = p.x - r1.x, p.y - r1.y
         return (px * ax + py * ay, px * nx + py * ny)
 
-    # Block letters follow the official layout: A, B, C on the north-west side of the
-    # main boulevard (south-west to north-east), F, E, D on the south-east side.
-    # The along-road split points are approximate (no surveyed block limits exist).
     U_AB, U_BC = 480.0, 980.0
 
     def block_of(p):
@@ -145,141 +206,250 @@ def main():
             return "B" if side == "NW" else "E"
         return "C" if side == "NW" else "D"
 
-    # --- roads -----------------------------------------------------------------
-    road_feats, road_lines = [], []
-    clip = B.buffer(45)
+    # ---- classify roads ------------------------------------------------------------
+    lines = []
     for e in roads:
         line = LineString([xy(p) for p in e["geometry"]])
         t = e["tags"]
         if t.get("junction") == "roundabout":
-            cls = "main"
+            cls = "roundabout"
         elif t.get("highway") == "tertiary":
             cls = "arterial"
         else:
-            # parallel to and within ~30 m of the main axis -> main road carriageway
             c = line.interpolate(0.5, normalized=True)
-            d = main_line.distance(c)
             p0, p1 = line.coords[0], line.coords[-1]
-            ln = math.hypot(p1[0] - p0[0], p1[1] - p0[1]) or 1
+            ln = math.dist(p0, p1) or 1
             par = abs(((p1[0] - p0[0]) * ax + (p1[1] - p0[1]) * ay) / ln)
-            cls = "main" if (d < 30 and par > 0.9) else "residential"
-        road_lines.append(line)
-        g = line.intersection(clip)
-        parts = [g] if g.geom_type == "LineString" else [p for p in getattr(g, "geoms", []) if p.geom_type == "LineString"]
-        for part in parts:
-            if part.length < 5:
-                continue
-            road_feats.append(feature(part, {
-                "osm_id": e["id"], "name": t.get("name") or ("Main Boulevard" if cls == "main" else None),
-                "class": cls, "width_m": ROAD_WIDTH[cls], "source": "OpenStreetMap", "accuracy": "georeferenced"}))
-    main_corridor = unary_union([l for l, f in zip(road_lines, [None] * 0)] or [main_line]).buffer(ROAD_WIDTH["main"] / 2)
+            cls = "main" if (axis_line.distance(c) < 30 and par > 0.9) else "residential"
+        lines.append({"e": e, "line": line, "cls": cls})
 
-    # --- blocks (faces of the road graph) --------------------------------------
-    faces = [f for f in polygonize(unary_union(road_lines)) if f.representative_point().within(B)]
-    faces.sort(key=lambda f: (block_of(f.centroid), uv(f.centroid)[0], uv(f.centroid)[1]))
-    print(f"blocks: {len(faces)} faces inside boundary")
+    # collectors: long straight residential chains (the 60/85 ft roads between blocks)
+    res = [d["line"] for d in lines if d["cls"] == "residential"]
+    merged = linemerge(MultiLineString(res))
+    chains = list(merged.geoms) if hasattr(merged, "geoms") else [merged]
+    coll = [ch for ch in chains if ch.length > 700 and math.dist(ch.coords[0], ch.coords[-1]) / ch.length > 0.93]
+    coll_zone = unary_union([ch.buffer(1.0) for ch in coll]) if coll else None
+    for d in lines:
+        if d["cls"] == "residential" and coll_zone is not None and d["line"].within(coll_zone):
+            d["cls"] = "collector"
+    from collections import Counter
+    print("road classes:", dict(Counter(d["cls"] for d in lines)))
 
-    block_feats, park_feats, plot_feats = [], [], []
-    counters = {k: 0 for k in "ABCDEF"}
-    park_n = {k: 0 for k in "ABCDEF"}
-    amen_n = 0
-    AMEN = ["Primary School", "Jamia Mosque", "Commercial Centre", "Community Centre", "Dispensary", "Grid Station"]
-    pid = 0
-    for fi, f in enumerate(faces):
-        blk = block_of(f.centroid)
-        d_main = main_line.distance(f.centroid)
-        area = f.area
-        inset = largest_polygon(f.buffer(-(ROAD_WIDTH["residential"] / 2 + INSET)))
-        # face kind
-        if area < 1500 or inset is None or inset.area < 600 or any(f.contains(r) for r in rbs):
-            kind = "open"
-        elif area > 15000 and h01("park", fi) < 0.14:
-            kind = "park"
-        elif area > 10000 and h01("amenity", fi) < 0.08:
-            kind = "amenity"
+    # main carriageway spacing
+    mains = [d["line"] for d in lines if d["cls"] == "main"]
+    if len(mains) >= 2:
+        mid = mains[0].interpolate(0.5, normalized=True)
+        spacing = min(m.distance(mid) for m in mains[1:] if m.distance(mid) > 3) if any(m.distance(mid) > 3 for m in mains[1:]) else 20
+    else:
+        spacing = 20
+    print(f"main carriageway spacing: {spacing:.1f} m")
+
+    # ---- road surfaces -------------------------------------------------------------
+    surf = unary_union([d["line"].buffer(WIDTH[d["cls"]] / 2, join_style=2 if d["cls"] != "roundabout" else 1, mitre_limit=3) for d in lines])
+    surf = surf.buffer(0.3).buffer(-0.3)  # heal slivers at junctions
+
+    # ---- faces of the road network (with the boundary as a closing edge) -----------
+    noded = unary_union([d["line"] for d in lines] + [LineString(B.exterior.coords)])
+    faces = [f for f in polygonize(noded) if f.representative_point().within(B)]
+    print(f"faces: {len(faces)}")
+
+    rb_zone = unary_union([d["poly"].buffer(2) for d in rbs])
+    F = []  # parcels
+    for i, f in enumerate(faces):
+        land = f.difference(surf)
+        lp = largest_polygon(land)
+        if lp is None or lp.area < 30:
+            continue
+        lp = lp.simplify(0.2)
+        cen = lp.representative_point()
+        mrr = lp.minimum_rotated_rectangle
+        cs = list(mrr.exterior.coords)
+        short = min(math.dist(cs[0], cs[1]), math.dist(cs[1], cs[2]))
+        if lp.within(rb_zone):
+            kind = "island"
+        elif axis_line.distance(cen) < spacing / 2 + 4 and short < spacing + 4:
+            kind = "median"
         else:
-            kind = "residential"
-        # plot size band: bigger plots near the main road, 5 Marla in the far NW/SE
+            kind = "parcel"
+        u, v = uv(cen)
+        F.append({"i": i, "land": lp, "kind": kind, "blk": block_of(cen), "u": u, "v": v, "c": cen,
+                  "area": lp.area, "inner": largest_polygon(lp.buffer(-SIDEWALK)) if kind == "parcel" else None, "use": None})
+    parcels = [p for p in F if p["kind"] == "parcel"]
+    print(f"parcels: {len(parcels)}  medians: {sum(p['kind']=='median' for p in F)}  islands: {sum(p['kind']=='island' for p in F)}")
+
+    # ---- landmarks -----------------------------------------------------------------
+    landmarks = []
+
+    def add_lm(poly, kind, name, blk, proposed=False, extra=None):
+        if poly is None or poly.area < 200:
+            return
+        props = {"id": len(landmarks) + 1, "kind": kind, "name": name, "block": "Block " + blk if blk else None,
+                 "area_kanal": round(poly.area / KANAL, 1), "proposed": proposed, "obb": obb(poly),
+                 "accuracy": "approximate", "source": "Placed per official FDA City block map"}
+        if extra:
+            props.update(extra)
+        landmarks.append(feature(poly.simplify(0.2), props))
+
+    def free(p, min_area=0):
+        return p["use"] is None and p["inner"] is not None and p["inner"].area >= min_area
+
+    def aspect(p):
+        o = obb(p["inner"])
+        return o["length"] / max(o["width"], 1)
+
+    blocks_c = {}
+    for b in "ABCDEF":
+        ps = [p for p in parcels if p["blk"] == b]
+        blocks_c[b] = Point(sum(p["c"].x for p in ps) / len(ps), sum(p["c"].y for p in ps) / len(ps))
+
+    # special zones first (they need particular locations)
+    # Area for FDA City Homes: hospital, sports complex, public building (far south-east, middle)
+    se = [p for p in parcels if free(p, 6500) and p["v"] < 0 and U_AB - 100 < p["u"] < U_BC + 500 and aspect(p) < 2.8]
+    if se:
+        se.sort(key=lambda p: p["v"])                    # farthest from the boulevard first
+        pick = sorted(se[:8], key=lambda p: -p["inner"].area)[:3]
+        pick.sort(key=lambda p: p["u"])
+        for (k, nm), z in zip([("hospital", "FDA City Hospital"), ("sports", "Sports Complex"), ("civic", "Public Building")], pick):
+            z["use"] = k
+            add_lm(z["inner"], k, nm, z["blk"])
+
+    # proposed university, cricket stadium, IMAX theatre: north-east end, Block C side
+    ne = sorted([p for p in parcels if free(p, 8000) and p["v"] > 0 and p["blk"] == "C" and aspect(p) < 2.6], key=lambda p: -p["u"])[:5]
+    ne.sort(key=lambda p: -p["inner"].area)
+    for (k, nm), p in zip([("stadium", "Proposed Cricket Stadium"), ("university", "Proposed University"), ("cinema", "Proposed IMAX Theatre")], ne[:3]):
+        p["use"] = k
+        add_lm(p["inner"], k, nm, "C", proposed=True)
+
+    # multi-purpose zone: northern corner of Block C
+    mp = [p for p in parcels if free(p, 5000) and p["blk"] == "C" and aspect(p) < 4]
+    if mp:
+        p = max(mp, key=lambda p: p["v"] + 0.3 * p["u"])
+        p["use"] = "multipurpose"
+        add_lm(p["inner"], "multipurpose", "Multi-Purpose Zone", "C")
+
+    # grid station and existing graveyard: west end of Block F
+    wf = sorted([p for p in parcels if free(p, 2500) and p["blk"] in "F" and aspect(p) < 4], key=lambda p: p["u"])
+    for (k, nm), p in zip([("grid", "Grid Station"), ("graveyard", "Existing Graveyard")], wf[:2]):
+        p["use"] = k
+        add_lm(p["inner"], k, nm, p["blk"])
+
+    # CNG station: small parcel in Block D next to the boulevard
+    dd = sorted([p for p in parcels if free(p, 900) and p["blk"] == "D" and p["area"] < 9000], key=lambda p: abs(p["v"]))
+    if dd:
+        dd[0]["use"] = "cng"
+        add_lm(dd[0]["inner"], "cng", "CNG Station", "D")
+    # Darbar (shrine): small parcel in Block E
+    ee = sorted([p for p in parcels if free(p, 700) and p["blk"] == "E" and p["area"] < 7000], key=lambda p: p["c"].distance(blocks_c["E"]))
+    if ee:
+        ee[0]["use"] = "shrine"
+        add_lm(ee[0]["inner"], "shrine", "Darbar (Shrine)", "E")
+
+    # block community complex: playground + school + mosque + commercial in one central parcel
+    for b in "ABCDEF":
+        cand = [p for p in parcels if free(p, 9000) and p["blk"] == b and aspect(p) < 3.5] or [p for p in parcels if free(p, 9000) and p["blk"] == b]
+        if not cand:
+            continue
+        p = max(cand, key=lambda p: p["inner"].area / 1000 - p["c"].distance(blocks_c[b]) / 45)
+        p["use"] = "complex"
+        for (k, _), pg in zip(COMPLEX_SPLIT, split_along(p["inner"], [f for _, f in COMPLEX_SPLIT])):
+            add_lm(pg, k, COMPLEX_NAMES[k].format(b=b), b)
+
+    # numbered parks, spread over each block (farthest-point sampling)
+    for b in "ABCDEF":
+        def compact(p):
+            o = obb(p["inner"])
+            return o["length"] / max(o["width"], 1) < 3.2
+        cand = [p for p in parcels if free(p, 2200) and p["blk"] == b and p["area"] < 16000 and compact(p)]
+        if len(cand) < PARKS_PER_BLOCK[b]:
+            cand += [p for p in parcels if free(p, 2200) and p["blk"] == b and p["area"] < 26000 and p not in cand]
+        chosen = []
+        while cand and len(chosen) < PARKS_PER_BLOCK[b]:
+            if not chosen:
+                p = min(cand, key=lambda p: p["c"].distance(blocks_c[b]) - p["area"] / 400)
+            else:
+                p = max(cand, key=lambda p: min(p["c"].distance(q["c"]) for q in chosen) * (0.6 + min(p["area"], 20000) / 50000))
+            chosen.append(p)
+            cand.remove(p)
+        chosen.sort(key=lambda p: (p["u"], -p["v"]))
+        for n, p in enumerate(chosen, 1):
+            p["use"] = "park"
+            add_lm(p["inner"], "park", f"Park {b}-{n}", b)
+
+    # main gate across the boulevard at the south-west entrance
+    if rbs:
+        off = rbs[0]["r"] + WIDTH["roundabout"] / 2 + 38
+        gp = Point(r1.x - ax * off, r1.y - ay * off)
+        landmarks.append(feature(gp, {"id": len(landmarks) + 1, "kind": "gate", "name": "FDA City Main Gate", "block": None,
+                                      "heading": round(axis_deg, 2), "span": round(spacing + WIDTH["main"] + 6, 1),
+                                      "accuracy": "approximate", "source": "Placed at the boulevard entrance"}))
+
+    # roundabout islands with monuments (first one carries a Clock Tower replica)
+    for n, d in enumerate(rbs):
+        isl = d["poly"].buffer(-(WIDTH["roundabout"] / 2 + 0.5))
+        if isl.is_empty:
+            continue
+        add_lm(isl, "roundabout", ["Clock Tower Roundabout", "Fountain Roundabout"][n % 2], None,
+               extra={"radius": round(math.sqrt(isl.area / math.pi), 1), "monument": ["clocktower", "fountain"][n % 2]})
+
+    kinds = Counter(f["properties"]["kind"] for f in landmarks)
+    print("landmarks:", dict(kinds))
+
+    # ---- plots ---------------------------------------------------------------------
+    plot_feats = []
+    counters = {k: 0 for k in "ABCDEF"}
+    pid = 0
+    corridor_half = spacing / 2 + WIDTH["main"] / 2
+    for p in sorted(parcels, key=lambda p: (p["blk"], p["u"], -p["v"])):
+        if p["use"] is not None or p["inner"] is None or p["inner"].area < 250:
+            continue
+        p["use"] = "plots"
+        blk, region = p["blk"], p["inner"]
+        d_main = axis_line.distance(p["c"])
         size = "20 Marla" if d_main < 280 else "10 Marla" if d_main < 620 else "5 Marla"
         if blk in "BC" and d_main > 900:
             size = "5 Marla"
-        if blk == "A" and d_main > 620 and h01("asz", fi) < 0.5:
+        if blk == "A" and d_main > 620 and h01("asz", p["i"]) < 0.5:
             size = "10 Marla"
-        bprops = {"block": "Block " + blk, "kind": kind, "area_m2": round(area), "plot_size": size if kind == "residential" else None,
-                  "accuracy": "approximate", "source": "Derived from OpenStreetMap road network"}
-        block_feats.append(feature(f.simplify(0.2), bprops))
-        if kind == "park":
-            park_n[blk] += 1
-            park_feats.append(feature(inset.simplify(0.3), {"name": f"Park {blk}-{park_n[blk]}", "kind": "park", "block": "Block " + blk,
-                                                             "area_kanal": round(inset.area / 505.857, 1), "accuracy": "approximate"}))
-            continue
-        if kind == "amenity":
-            nm = AMEN[amen_n % len(AMEN)]
-            amen_n += 1
-            park_feats.append(feature(inset.simplify(0.3), {"name": f"{nm} ({blk})", "kind": "amenity", "block": "Block " + blk,
-                                                             "area_kanal": round(inset.area / 505.857, 1), "accuracy": "approximate"}))
-            continue
-        if kind != "residential":
-            continue
-
-        # --- subdivide the inset face into plots ---------------------------------
-        commercial_face = d_main < 60
-        w, dep = SIZES[size]
-        mrr = inset.minimum_rotated_rectangle
-        cs = list(mrr.exterior.coords)
-        e0 = math.hypot(cs[1][0] - cs[0][0], cs[1][1] - cs[0][1])
-        e1 = math.hypot(cs[2][0] - cs[1][0], cs[2][1] - cs[1][1])
-        a, b = (cs[0], cs[1]) if e0 >= e1 else (cs[1], cs[2])
-        theta = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
-        c = inset.centroid
-        rot = affinity.rotate(inset, -theta, origin=c)
+        commercial_face = axis_line.distance(region) < corridor_half + SIDEWALK + 30
+        w, dep = SIZES["Commercial" if commercial_face else size]
+        o = obb(region)
+        c = region.centroid
+        rot = affinity.rotate(region, -o["angle"], origin=c)
         minx, miny, maxx, maxy = rot.bounds
         width_b = maxy - miny
-        if width_b < dep * 0.7:
-            continue
-        # row bands across the short axis: pairs of back-to-back rows separated by a lane
-        bands = []
-        y = miny
-        while True:
-            if y + dep <= maxy + 0.01:
-                bands.append((y, min(y + dep, maxy)))
-            else:
-                break
+        if width_b < dep * 0.6:
+            dep = width_b
+        bands, y = [], miny
+        while y + dep <= maxy + 0.01:
+            bands.append((y, y + dep))
             if y + 2 * dep <= maxy + 0.01:
                 bands.append((y + dep, y + 2 * dep))
             else:
                 break
             y += 2 * dep + LANE
-        if not bands:
-            bands = [(miny, maxy)]
         if len(bands) == 1 and width_b > dep * 1.4:
             bands = [(miny, miny + dep), (maxy - dep, maxy)]
-        for bi, (y0, y1) in enumerate(bands):
+        for (y0, y1) in bands:
             n = max(1, int((maxx - minx) / w))
             for k in range(n):
                 x0 = minx + k * w
                 x1 = maxx if k == n - 1 else x0 + w
-                cell = box(x0, y0, x1, y1)
-                if cell.area > w * dep * 1.8:          # oversize remainder: split again
+                pg = largest_polygon(box(x0, y0, x1, y1).intersection(rot))
+                if pg is None or pg.area < w * dep * 0.45:
                     continue
-                pg = largest_polygon(cell.intersection(rot))
-                if pg is None or pg.area < w * dep * 0.5:
-                    continue
-                pg = affinity.rotate(pg, theta, origin=c).simplify(0.15)
+                pg = affinity.rotate(pg, o["angle"], origin=c).simplify(0.15)
                 pid += 1
                 counters[blk] += 1
                 key = (blk, counters[blk])
-                # commercial frontage on the main boulevard
-                ptype = "Commercial" if (commercial_face and main_line.distance(pg.centroid) < 50) else "Residential"
+                ptype = "Commercial" if (commercial_face and axis_line.distance(pg.centroid) < corridor_half + SIDEWALK + 30) else "Residential"
                 psize = "Commercial" if ptype == "Commercial" else size
-                # development: higher near the main road and the centre, with smooth variation
                 cx, cy = pg.centroid.x, pg.centroid.y
                 noise = 0.5 * math.sin(cx / 230 + 1.3) * math.cos(cy / 260 - 0.4) + 0.5 * math.sin((cx + cy) / 410)
                 dev = 0.98 - min(d_main, 1400) / 1400 * 0.9 + 0.26 * noise + (h01("dev", *key) - 0.5) * 0.3
                 dev_class = "High" if dev > 0.68 else "Medium" if dev > 0.36 else "Low"
                 r = h01("status", *key)
                 status = "Sold" if r < 0.42 else "Available" if r < 0.72 else "Reserved" if r < 0.85 else "Unknown"
-                built_p = (0.92 if dev_class == "High" else 0.55 if dev_class == "Medium" else 0.18)
+                built_p = 0.92 if dev_class == "High" else 0.55 if dev_class == "Medium" else 0.18
                 if status == "Available":
                     built_p *= 0.3
                 built = h01("built", *key) < built_p
@@ -298,60 +468,72 @@ def main():
                     "built": built, "storeys": storeys, "height": round(height, 1), "height_source": "assumed",
                     "source": src, "confidence": conf, "lat": lat, "lon": lon,
                     "area_m2": round(pg.area), "accuracy": "approximate"}))
-
     print(f"plots: {len(plot_feats)}  per block: {counters}")
-    byc = {}
-    for p in plot_feats:
-        for k in ("status", "dev_class", "size", "type"):
-            byc.setdefault(k, {}).setdefault(p["properties"][k], 0)
-            byc[k][p["properties"][k]] += 1
-    for k, v in byc.items():
-        print(f"  {k}: {v}")
 
-    # --- write -------------------------------------------------------------------
+    # ---- write -----------------------------------------------------------------------
     cen = B.centroid
     bprops = {"name": "FDA City", "city": "Faisalabad", "osm_id": BOUNDARY_ID, "source": "OpenStreetMap", "accuracy": "georeferenced",
-              "area_km2": round(B.area / 1e6, 2), "centre_lon": ll(cen.x, cen.y)[0], "centre_lat": ll(cen.x, cen.y)[1]}
-    print("writing to", OUT)
-    write("boundary", [feature(B, bprops)])
-    write("roads", road_feats)
-    write("blocks", block_feats)
-    write("parks", park_feats)
-    write("plots", plot_feats, {"data_note": "Plot geometry and attributes are generated samples (accuracy=approximate). Replace with surveyed/georeferenced data using the same property names."})
+              "area_km2": round(B.area / 1e6, 2), "centre_lon": ll(cen.x, cen.y)[0], "centre_lat": ll(cen.x, cen.y)[1],
+              "lat_ref": LAT_REF, "axis_deg": round(axis_deg, 2), "sidewalk_m": SIDEWALK}
+    road_feats = []
+    clip = B.buffer(60)
+    for d in lines:
+        g = d["line"].intersection(clip)
+        for part in ([g] if g.geom_type == "LineString" else [q for q in getattr(g, "geoms", []) if q.geom_type == "LineString"]):
+            if part.length < 5:
+                continue
+            t = d["e"]["tags"]
+            road_feats.append(feature(part, {"osm_id": d["e"]["id"], "name": t.get("name") or ("Main Boulevard (202 ft)" if d["cls"] == "main" else None),
+                                             "class": d["cls"], "width_m": round(WIDTH[d["cls"]], 1), "oneway": t.get("oneway") == "yes",
+                                             "source": "OpenStreetMap", "accuracy": "georeferenced"}))
+    outer = surf.intersection(B.buffer(450)).difference(B.buffer(-0.5))
+    land_feats = []
+    for p in F:
+        use = p["use"] or ("open" if p["kind"] == "parcel" else p["kind"])
+        land_feats.append(feature(p["land"], {"layer": "land", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "area_m2": round(p["area"]), "accuracy": "approximate"}))
+        if p["inner"] is not None:
+            land_feats.append(feature(p["inner"].simplify(0.2), {"layer": "inner", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "accuracy": "approximate"}))
+    print("writing to", out)
+    write(out, "boundary", [feature(B, bprops)])
+    write(out, "roads", road_feats)
+    inner_surf = surf.intersection(B.buffer(1.0))
+    write(out, "road_surface", [feature(q.simplify(0.25), {"kind": "carriageway", "accuracy": "approximate", "source": "OSM centrelines buffered to official widths"}) for q in polys(inner_surf) if q.area > 20])
+    write(out, "outer_roads", [feature(q.simplify(0.3), {"kind": "road", "accuracy": "approximate"}) for q in polys(outer) if q.area > 20])
+    write(out, "blocks", land_feats)
+    write(out, "landmarks", landmarks)
+    write(out, "parks", [f for f in landmarks if f["geometry"]["type"] == "Polygon" and f["properties"]["kind"] != "roundabout"])
+    write(out, "plots", plot_feats, {"data_note": "Plot geometry and attributes are generated samples (accuracy=approximate). Replace with surveyed or georeferenced data using the same property names."})
 
     if args.preview:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        COL = {"High": "#3fae5f", "Medium": "#e0a93a", "Low": "#c9573f"}
-        fig, axs = plt.subplots(1, 2, figsize=(22, 11), dpi=100)
-        for axx in axs:
-            axx.set_aspect("equal")
-            bx, by = B.exterior.xy
-            axx.plot(bx, by, color="red", lw=1)
-        BC = {"A": "#9bc", "B": "#bcb", "C": "#cba", "D": "#cab", "E": "#abc", "F": "#bbb"}
-        for bf in block_feats:
-            pg = Polygon([((lon - LON0) * MLON, (lat - LAT0) * MLAT) for lon, lat in bf["geometry"]["coordinates"][0]])
-            k = bf["properties"]["kind"]
-            col = "#7fbf7f" if k == "park" else "#d8b0e0" if k == "amenity" else "#eee" if k == "open" else BC[bf["properties"]["block"][-1]]
-            axs[0].fill(*pg.exterior.xy, color=col, ec="#555", lw=0.3)
-        for blk in "ABCDEF":
-            pts = [Polygon([((lon - LON0) * MLON, (lat - LAT0) * MLAT) for lon, lat in bf["geometry"]["coordinates"][0]]).centroid
-                   for bf in block_feats if bf["properties"]["block"][-1] == blk and bf["properties"]["kind"] == "residential"]
-            if pts:
-                axs[0].annotate("BLOCK " + blk, (sum(p.x for p in pts) / len(pts), sum(p.y for p in pts) / len(pts)),
-                                fontsize=16, weight="bold", ha="center", color="#123")
-        for pf in plot_feats:
-            pg = Polygon([((lon - LON0) * MLON, (lat - LAT0) * MLAT) for lon, lat in pf["geometry"]["coordinates"][0]])
-            axs[1].fill(*pg.exterior.xy, color=COL[pf["properties"]["dev_class"]], ec="none", alpha=0.9 if pf["properties"]["built"] else 0.35)
-        for rf in road_feats:
-            xs = [(lon - LON0) * MLON for lon, lat in rf["geometry"]["coordinates"]]
-            ys = [(lat - LAT0) * MLAT for lon, lat in rf["geometry"]["coordinates"]]
-            lw = {"main": 2.5, "arterial": 1.8, "residential": 0.5}[rf["properties"]["class"]]
-            for axx in axs:
-                axx.plot(xs, ys, color="#222", lw=lw)
-        axs[0].set_title("blocks: letter zones, parks (green), amenities (purple), open (grey)")
-        axs[1].set_title("plots coloured by dev_class (faded = vacant)")
+        fig, axp = plt.subplots(figsize=(16, 16), dpi=100)
+        axp.set_aspect("equal")
+        for q in polys(surf.intersection(B.buffer(200))):
+            axp.fill(*q.exterior.xy, color="#555", ec="none")
+            for r in q.interiors:
+                axp.fill(*r.xy, color="white", ec="none")
+        LC = {"parcel": "#d9cfb6", "median": "#5a9a55", "island": "#5a9a55"}
+        for p in F:
+            axp.fill(*p["land"].exterior.xy, color=LC[p["kind"]], ec="none")
+        KC = {"park": "#62b06a", "playground": "#9bd17a", "school": "#d98b5f", "mosque": "#f2f2f2", "commercial": "#7aa6d9",
+              "hospital": "#e05c5c", "sports": "#c7a0e0", "civic": "#c9b48a", "stadium": "#a0e0c7", "university": "#e0b0a0",
+              "cinema": "#b07ad9", "multipurpose": "#a0a0e0", "grid": "#999", "graveyard": "#8a8a6a", "cng": "#e0e070", "shrine": "#40a060", "roundabout": "#3f8f3f"}
+        for f in landmarks:
+            pr = f["properties"]
+            if f["geometry"]["type"] != "Polygon":
+                continue
+            pg = Polygon([xy({"lon": a, "lat": b}) for a, b in f["geometry"]["coordinates"][0]])
+            axp.fill(*pg.exterior.xy, color=KC.get(pr["kind"], "#f0f"), ec="k", lw=0.4)
+            if pr["kind"] not in ("roundabout",):
+                axp.annotate(pr["name"].replace(" (", "\n("), (pg.centroid.x, pg.centroid.y), fontsize=5.5, ha="center", va="center")
+        for f in plot_feats:
+            pg = Polygon([xy({"lon": a, "lat": b}) for a, b in f["geometry"]["coordinates"][0]])
+            axp.fill(*pg.exterior.xy, color="#e8a04a" if f["properties"]["type"] == "Commercial" else "#f4e3c0", ec="#9a8a6a", lw=0.15)
+        axp.plot(*B.exterior.xy, color="red", lw=1)
+        for b, c in blocks_c.items():
+            axp.annotate("BLOCK " + b, (c.x, c.y), fontsize=18, weight="bold", ha="center", color="#123", alpha=0.6)
         fig.savefig(args.preview, bbox_inches="tight")
         print("preview:", args.preview)
 
