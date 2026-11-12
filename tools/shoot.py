@@ -14,6 +14,7 @@ ap.add_argument("--js", action="append", default=[], help="JS to run after ready
 ap.add_argument("--wait", type=float, default=2.0, help="extra seconds after rendered()")
 ap.add_argument("--size", default="1500x1050")
 ap.add_argument("--timeout", type=float, default=120)
+ap.add_argument("--el", default=None, help="CSS selector: screenshot only this element")
 a = ap.parse_args()
 w, h = (int(v) for v in a.size.split("x"))
 
@@ -49,7 +50,12 @@ with sync_playwright() as p:
     time.sleep(a.wait)
     pg.evaluate("window.__map && window.__map.requestRender()")
     time.sleep(0.5)
-    pg.screenshot(path=a.out)
+    if a.el:
+        box = pg.evaluate("(s) => { const e = document.querySelector(s); e.scrollIntoView({block: 'center'}); const r = e.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: Math.min(r.height, innerHeight - r.y)}; }", a.el)
+        time.sleep(1.0)
+        pg.screenshot(path=a.out, clip=box, timeout=120000)
+    else:
+        pg.screenshot(path=a.out, timeout=120000)
     print("log:", pg.evaluate("window.__log || []"))
     print("side panel:", pg.evaluate("(document.getElementById('side')||{}).innerText || ''")[:400].replace("\n", " | "))
     for m in msgs:

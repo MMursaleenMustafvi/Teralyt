@@ -17,7 +17,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Sky } from 'three/addons/objects/Sky.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createMaterials, makeKit, buildLandmark, buildGate, rng } from './models3d.js';
 
 const PI = Math.PI;
@@ -30,8 +30,8 @@ const COLORS = {
   sat: { built: '#9c8a72', vacant: '#ddd2b2' },
   size: { '5 Marla': '#8fd16a', '10 Marla': '#ee8fb8', '20 Marla': '#7fa6e6', 'Commercial': '#f0a040' }
 };
-const KIND_LABEL = { dispensary: 'Dispensary', homes: 'FDA City Homes', metro: 'Metro store', sewerage: 'Sewerage works', nala: 'Storm drain (nalla)', mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
-const KIND_COLOR = { dispensary: '#c3392b', homes: '#b5651d', metro: '#0b3a7a', sewerage: '#4a6a7a', nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
+const KIND_LABEL = { highschool: 'High school', postoffice: 'Post office, police station, telephone exchange', community: 'Community centre', hotel: 'Hotel site', firestation: 'Fire brigade', office: 'Office', shops: 'Shops', dispensary: 'Dispensary', homes: 'FDA City Homes', metro: 'Metro store', sewerage: 'Sewerage works', nala: 'Storm drain (nalla)', mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
+const KIND_COLOR = { highschool: '#a5533a', postoffice: '#8a3b3b', community: '#8a6d3b', hotel: '#2e6fb6', firestation: '#c3392b', office: '#4a5a8a', shops: '#2e6fb6', dispensary: '#c3392b', homes: '#b5651d', metro: '#0b3a7a', sewerage: '#4a6a7a', nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
 
 export function Society3D(el, opts = {}) {
   opts = Object.assign({ dataUrl: 'data/', layer: 'cls', onPick: null, onHover: null, onStatus: null }, opts);
@@ -183,6 +183,7 @@ export function Society3D(el, opts = {}) {
     if (bp.blocks) { blockCentres = {}; for (const b in bp.blocks) blockCentres[b] = P(...bp.blocks[b]); }
 
     status('loading', 'Building ground, roads and parcels…'); await tick();
+    const isLandF = f => f.properties.layer === 'land';
     // countryside
     const farm = new THREE.Mesh(new THREE.PlaneGeometry(24000, 24000), new THREE.MeshStandardMaterial({ map: farmTexture(axisRad), roughness: 1 }));
     farm.rotation.x = -PI / 2; farm.position.y = -.25; farm.receiveShadow = true; scene.add(farm); layers.stylised.push(farm);
@@ -191,10 +192,22 @@ export function Society3D(el, opts = {}) {
     layers.stylised.push(addMesh(flatGeom(outer.features, Y.road - .01), M.asphalt));
     layers.stylised.push(addMesh(flatGeom(surface.features, Y.road, f => f.properties.kind !== 'verge'), M.asphalt));
     layers.stylised.push(addMesh(flatGeom(surface.features, Y.verge, f => f.properties.kind === 'verge'), M.verge));
-    const isLand = f => f.properties.layer === 'land', isInner = f => f.properties.layer === 'inner';
+    // green open space: every piece of land that is not road, plot or facility
+    layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn + .006, f => f.properties.layer === 'green'), M.lawn));
+    { const r = rng(404);
+      for (const f of land.features) if (f.properties.layer === 'green' && f.properties.area_m2 > 60) for (const rings of polysOf(f.geometry)) {
+        const ring = ringPlan(rings[0]); let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+        for (const [x, y] of ring) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); miny = Math.min(miny, y); maxy = Math.max(maxy, y); }
+        for (let x = minx + 3; x < maxx; x += 8) for (let y = miny + 3; y < maxy; y += 8) { const px = x + (r() - .5) * 5, py = y + (r() - .5) * 5; if (r() < .55 && pipPlan(px, py, ring) && edgeDistPlan(px, py, ring) > 2) trees[r() < .7 ? 'round' : r() < .6 ? 'cone' : 'palm'].push([px, Y.lawn, -py, .7 + r() * .5]); }
+      } }
+    // painted kerbs around medians, roundabout islands and boulevard strips
+    { const rings = [];
+      for (const f of land.features) if (isLandF(f) && ['median', 'island', 'strip'].includes(f.properties.kind)) for (const pr of polysOf(f.geometry)) for (const rg of pr) rings.push(ringPlan(rg));
+      layers.stylised.push(addMesh(kerbGeometry(rings, Y.road, .3, .32), M.kerb, { cast: false })); }
+const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     const parcelLike = f => f.properties.kind === 'parcel' || f.properties.kind === 'greenbelt';
     layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.curb - Y.road, f => isLand(f) && parcelLike(f)), M.sidewalk));
-    layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn, f => isInner(f) && f.properties.kind === 'parcel'), M.scrub));
+    layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn, f => isInner(f) && f.properties.kind === 'parcel'), M.plotground));
     layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.curb - Y.road, f => isLand(f) && f.properties.kind === 'strip'), M.paving));
     layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn + .004, f => isInner(f) && f.properties.kind === 'greenbelt'), M.lawn));
     for (const f of land.features) if (isInner(f) && f.properties.kind === 'greenbelt') for (const rings of polysOf(f.geometry)) {
@@ -235,9 +248,9 @@ export function Society3D(el, opts = {}) {
     if (!features.length) return;
     const of = k => features.filter(f => f.properties.kind === k);
     const bank = addMesh(flatGeom(of('nala_bank'), Y.lawn - .02), M.lawn);
-    const wall = addMesh(extrudeGeom(of('nala_wall'), 0, .95), M.concrete, { cast: true });
-    const bed = addMesh(flatGeom(of('nala_water'), .05), M.dirt);
-    const wat = addMesh(flatGeom(of('nala_water'), .38), M.water);
+    const wall = addMesh(extrudeGeom(of('nala_wall'), 0, .62), M.concrete, { cast: true });
+    const bed = null;
+    const wat = addMesh(flatGeom(of('nala_water'), .1), M.nalaWater);
     for (const f of of('nala_tree')) { const [e, n] = P(...f.geometry.coordinates); trees[(Math.round(e * 3 + n) % 4) ? 'round' : 'palm'].push([e, Y.lawn, -n, .95]); }
     // bridge railings where roads cross the channel
     const parts = [];
@@ -302,6 +315,14 @@ export function Society3D(el, opts = {}) {
       const w = l.p.width_m || 12, cls = l.p.class;
       if (cls === 'service') {
         stripe(l.pts, 0, 3, 6, .12);
+      } else if (cls === 'road110' || cls === 'divider_half') {
+        stripe(l.pts, 0, 3, 6, .13); stripe(l.pts, w / 2 - .35, 1, 0, .16); stripe(l.pts, -(w / 2 - .35), 1, 0, .16);
+        along(l.pts, 38, 9, (x, y, ux, uy, t) => { const off = w / 2 + 1.2, px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-ux, uy) + PI]); });
+        along(l.pts, 19, 4, (x, y, ux, uy, t) => { const off = w / 2 + 2.6, px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 19) % 2) trees.round.push([px, Y.verge, -py, .85]); });
+      } else if (cls === 'road85') {
+        stripe(l.pts, 0, 3, 5, .13); stripe(l.pts, w / 2 - .35, 1, 0, .16); stripe(l.pts, -(w / 2 - .35), 1, 0, .16);
+        along(l.pts, 38, 9, (x, y, ux, uy, t) => { const s = Math.round(t / 38) % 2 ? 1 : -1, off = s * (w / 2 + 1.2), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); });
+        along(l.pts, 18, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 3.5), px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 18) % 2) trees.round.push([px, Y.verge, -py, .85]); } });
       } else if (cls === 'divider') {
         stripe(l.pts, .18, 1, 0, .12); stripe(l.pts, -.18, 1, 0, .12);               // double centre line
         stripe(l.pts, w / 4, 3, 6, .14); stripe(l.pts, -w / 4, 3, 6, .14);           // four lanes
@@ -362,6 +383,7 @@ export function Society3D(el, opts = {}) {
     scene.add(group); group.updateMatrixWorld(true);
     const k = makeKit(group, M, local, hooks);
     if (kind === 'gate') buildGate(k, W); else buildLandmark(kind, k, L, W, p);
+    if (p.outside && kind !== 'metro') { /* shown on the official plan but outside the society */ }
     const info = Object.assign({}, p, { _group: group, _top: Math.max(6, k.top), _L: L, _W: W, _center: group.position.clone() });
     lmById.set(p.id, info); api.landmarks.push(info); lmGroups.push(group);
     group.userData.lm = p.id;
@@ -398,13 +420,13 @@ export function Society3D(el, opts = {}) {
   function padGeometry(items, y0, y1) {
     let tris = 0;
     for (const it of items) tris += it.tris.length + it.ring.length * 2;
-    const pos = new Float32Array(tris * 9), nor = new Float32Array(tris * 9), col = new Float32Array(tris * 9), pid = new Float32Array(tris * 3);
+    const pos = new Float32Array(tris * 9), nor = new Float32Array(tris * 9), col = new Float32Array(tris * 9), pid = new Float32Array(tris * 3), uvs = new Float32Array(tris * 6);
     let v = 0;
     const put = (a, b, c, n, id) => {
       const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
       const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
       if (cx * n[0] + cy * n[1] + cz * n[2] < 0) { const t = b; b = c; c = t; }
-      for (const q of [a, b, c]) { pos.set(q, v * 3); nor.set(n, v * 3); pid[v] = id; v++; }
+      for (const q of [a, b, c]) { pos.set(q, v * 3); nor.set(n, v * 3); uvs[v * 2] = q[0] / 7; uvs[v * 2 + 1] = q[2] / 7; pid[v] = id; v++; }
     };
     for (const it of items) {
       it._v0 = v;
@@ -424,6 +446,7 @@ export function Society3D(el, opts = {}) {
     g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setAttribute('pid', new THREE.BufferAttribute(pid, 1));
+    g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     return g;
   }
   function plotItem(f, idx, shrink = .3) {
@@ -442,7 +465,7 @@ export function Society3D(el, opts = {}) {
       plotItems.push(it); api.plots.push(p); byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase(), p.id);
     });
     plotGeom = padGeometry(plotItems, Y.plotBase, Y.plotTop);
-    plotMesh = new THREE.Mesh(plotGeom, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .78, metalness: 0 }));
+    plotMesh = new THREE.Mesh(plotGeom, new THREE.MeshStandardMaterial({ vertexColors: true, map: M.plotMap, roughness: .88, metalness: 0 }));
     plotMesh.castShadow = true; plotMesh.receiveShadow = true; plotMesh.userData.plots = true;
     scene.add(plotMesh); pickables.push(plotMesh);
     recolor();
@@ -470,10 +493,10 @@ export function Society3D(el, opts = {}) {
     if (f.block && !p.block.endsWith(' ' + f.block)) return false;
     return true;
   }
-  const SOIL = ['#b9a67f', '#b3a079', '#bfab84', '#ac9a74', '#c2b08a', '#a99772'].map(c => new THREE.Color(c));
+  const SOIL = ['#cdbb93', '#c9b78f', '#d1c098', '#c5b38b', '#cfbd95', '#c7b58d'].map(c => new THREE.Color(c));
   function plotColor(p, layer) {
     if (!passes(p)) return DIM.clone();
-    if (layer === 'real') return SOIL[(p.id * 7) % SOIL.length].clone().lerp(new THREE.Color(p.type === 'Commercial' ? '#a99c86' : '#9aa06a'), ((p.id * 13) % 10) / 40);
+    if (layer === 'real') return p.type === 'Commercial' ? new THREE.Color('#c9c2b4') : SOIL[(p.id * 7) % SOIL.length].clone();
     if (layer === 'size') return new THREE.Color(COLORS.size[p.size] || '#cccccc');
     if (layer === 'sat') return new THREE.Color(p.built ? COLORS.sat.built : COLORS.sat.vacant);
     const c = new THREE.Color(layer === 'stat' ? (COLORS.stat[p.status] || COLORS.stat.Unknown) : (COLORS.cls[p.dev_class] || COLORS.cls.Low));
@@ -494,10 +517,25 @@ export function Society3D(el, opts = {}) {
     for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
     g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g;
   }
+  // crowns are smooth blobs shaded darker underneath; trunks are plain
+  function shaded(geom, top, bottom) {
+    let g = geom.clone(); g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g, 1e-3); g.computeVertexNormals(); g = g.toNonIndexed();
+    g.computeBoundingBox(); const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y, a = new THREE.Color(top), b = new THREE.Color(bottom), c = new THREE.Color();
+    const p = g.attributes.position, col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) { const t = (p.getY(i) - y0) / (y1 - y0 || 1); c.copy(b).lerp(a, Math.pow(t, .8)); col.set([c.r, c.g, c.b], i * 3); }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.deleteAttribute('uv'); return g;
+  }
+  const blob = (r, x, y, z, sy = .85) => new THREE.IcosahedronGeometry(r, 1).scale(1, sy, 1).translate(x, y, z);
+  const plain = (geom, hex) => { const g = colored(geom, hex); g.deleteAttribute('uv'); return g; };
   const treeGeo = {
-    round: () => mergeGeometries([colored(new THREE.CylinderGeometry(.16, .26, 3.2, 6).translate(0, 1.6, 0), '#6b4a2e'), colored(new THREE.IcosahedronGeometry(2.4, 1).scale(1, .82, 1).translate(0, 4.6, 0), '#4f8a3a'), colored(new THREE.IcosahedronGeometry(1.6, 1).translate(.9, 5.6, .5), '#5d9a42')]),
-    cone: () => mergeGeometries([colored(new THREE.CylinderGeometry(.13, .2, 1.8, 6).translate(0, .9, 0), '#5d4029'), colored(new THREE.ConeGeometry(1.5, 6.4, 9).translate(0, 4.6, 0), '#2f6b35')]),
-    palm: () => { const parts = [colored(new THREE.CylinderGeometry(.17, .27, 7.4, 7).translate(0, 3.7, 0), '#8a6b45')]; for (let i = 0; i < 8; i++) { const g = new THREE.BoxGeometry(3.4, .08, .7).translate(1.7, 0, 0).rotateZ(-.38 - (i % 2) * .15).rotateY(i / 8 * 2 * PI).translate(0, 7.4, 0); parts.push(colored(g, i % 2 ? '#4f8f3a' : '#3f7d32')); } parts.push(colored(new THREE.SphereGeometry(.45, 8, 6).translate(0, 7.1, 0), '#6d5a2a')); return mergeGeometries(parts); }
+    round: () => mergeGeometries([plain(new THREE.CylinderGeometry(.14, .26, 3.4, 7).translate(0, 1.7, 0), '#5f4630'),
+      shaded(blob(2.3, 0, 4.9, 0), '#6fae4a', '#2f5f2a'), shaded(blob(1.7, 1.3, 4.3, .5), '#69a846', '#2c5a28'), shaded(blob(1.6, -1.1, 4.5, -.7), '#74b34f', '#2f5f2a'), shaded(blob(1.4, .2, 6.2, .3), '#7dbb55', '#3a6f30')]),
+    cone: () => mergeGeometries([plain(new THREE.CylinderGeometry(.12, .2, 1.4, 6).translate(0, .7, 0), '#5d4029'),
+      shaded(new THREE.IcosahedronGeometry(1, 1).scale(1.15, 3.4, 1.15).translate(0, 4.4, 0), '#4f8f45', '#1f4a26')]),
+    palm: () => { const parts = [plain(new THREE.CylinderGeometry(.16, .28, 7.6, 8).translate(0, 3.8, 0), '#8a6b45')];
+      for (let i = 0; i < 9; i++) { const a = i / 9 * 2 * PI, droop = .32 + (i % 3) * .1;
+        for (let s = 0; s < 3; s++) { const len = 1.3, g = new THREE.BoxGeometry(len, .06, .62 - s * .16).translate(len / 2, 0, 0).rotateZ(-droop - s * .38).translate(Math.cos(droop + (s ? .2 : 0)) * 1.25 * s, 7.6 - Math.sin(droop) * 1.2 * s - s * s * .22, 0).rotateY(a); parts.push(plain(g, s === 2 ? '#3f7a30' : i % 2 ? '#559a3c' : '#4a8c36')); } }
+      parts.push(plain(new THREE.SphereGeometry(.42, 8, 6).translate(0, 7.45, 0), '#6d5a2a')); return mergeGeometries(parts); }
   };
   function buildInstances() {
     const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .92 });
@@ -505,7 +543,7 @@ export function Society3D(el, opts = {}) {
     for (const type of Object.keys(trees)) {
       const list = trees[type]; if (!list.length) continue;
       const im = new THREE.InstancedMesh(treeGeo[type](), treeMat, list.length);
-      list.forEach((t, i) => { const sc = t[3] * (.85 + r() * .3); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 2 * PI); im.setMatrixAt(i, m4.compose(p.set(t[0], t[1], t[2]), q, s.set(sc, sc * (.9 + r() * .25), sc))); im.setColorAt(i, c.setHSL(.27 + (r() - .5) * .06, .25 + r() * .2, .45 + r() * .15).multiplyScalar(1.9)); });
+      list.forEach((t, i) => { const sc = t[3] * (.85 + r() * .3); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 2 * PI); im.setMatrixAt(i, m4.compose(p.set(t[0], t[1], t[2]), q, s.set(sc, sc * (.9 + r() * .25), sc))); im.setColorAt(i, c.setHSL(.24 + r() * .1, .25, .78 + r() * .2)); });
       im.castShadow = true; im.receiveShadow = true; scene.add(im);
     }
     // lamps
@@ -537,17 +575,17 @@ export function Society3D(el, opts = {}) {
   function buildCars(features) {
     const paths = [];
     for (const f of features) {
-      const pr = f.properties; if (!['main', 'divider', 'service', 'collector'].includes(pr.class)) continue;
+      const pr = f.properties; if (!['main', 'divider', 'divider_half', 'road110', 'road85', 'service', 'collector'].includes(pr.class)) continue;
       const pts = f.geometry.coordinates.map(c => P(c[0], c[1])); let len = 0; const cum = [0];
       for (let i = 1; i < pts.length; i++) { len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); cum.push(len); }
-      if (len > 120) paths.push({ pts, cum, len, w: pr.width_m || 12, main: pr.class === 'main' || pr.class === 'divider' });
+      if (len > 120) paths.push({ pts, cum, len, w: pr.width_m || 12, main: pr.class === 'main', oneway: !!pr.oneway });
     }
     const r = rng(11), cars = [];
     for (const pa of paths) {
       const n = Math.floor(pa.len / (pa.main ? 45 : 110));
       for (let i = 0; i < n; i++) {
-        const dir = pa.main ? 1 : (r() < .5 ? 1 : -1);
-        const lane = pa.main ? [-1, 0, 1][(r() * 3) | 0] * pa.w / 3 : dir * pa.w / 4;
+        const dir = (pa.main || pa.oneway) ? 1 : (r() < .5 ? 1 : -1);
+        const lane = pa.main ? [-1, 0, 1][(r() * 3) | 0] * pa.w / 3 : pa.oneway ? (r() < .5 ? -1 : 1) * pa.w / 4 : -dir * pa.w / 4;
         cars.push({ pa, s: r() * pa.len, v: (pa.main ? 11 : 8) + r() * 5, dir, lane });
       }
     }
@@ -767,7 +805,7 @@ export function Society3D(el, opts = {}) {
     stars.visible = night; sky.visible = night; physSky.visible = !night;
     for (const m of M.night) m.emissiveIntensity = night ? (m === M.lampOn ? 4 : 1.3) : 0;
     for (const m of nightSigns) m.emissiveIntensity = night ? .7 : 0;
-    M.water.emissiveIntensity = night ? .9 : .35;
+    M.water.emissiveIntensity = night ? .12 : .35;
     renderer.toneMappingExposure = night ? 1.1 : 1.0;
     if (night) ensureComposer();
   }
@@ -928,6 +966,7 @@ export function Society3D(el, opts = {}) {
     sky.position.copy(camera.position); stars.position.copy(camera.position); physSky.position.copy(camera.position);
     if (tileGroup.visible && now - lastTiles > 250) { lastTiles = now; updateTiles(); }
     if (M.water.normalMap) { M.water.normalMap.offset.x += dt * .018; M.water.normalMap.offset.y += dt * .011; }
+    if (M.nalaWater.normalMap) { M.nalaWater.normalMap.offset.x += dt * .03; }
     // shadow frustum follows the view
     const t = controls.target, dist = camera.position.distanceTo(t), d = Math.max(110, Math.min(2600, dist * 1.05));
     if (Math.abs(d - shadowD) / d > .06) { shadowD = d; const sc = sun.shadow.camera; sc.left = -d; sc.right = d; sc.top = d; sc.bottom = -d; sc.near = 10; sc.far = d * 4 + 3000; sc.updateProjectionMatrix(); }
@@ -962,6 +1001,27 @@ function pipPlan(x, y, poly) {
   let ins = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) ins = !ins; }
   return ins;
+}
+function edgeDistPlan(x, y, poly) { let d = Infinity; for (let i = 0; i < poly.length; i++) d = Math.min(d, segDist(x, y, poly[i], poly[(i + 1) % poly.length])); return d; }
+// raised kerb with alternating paint along closed rings (plan coordinates): outer face + top face
+function kerbGeometry(rings, y0, h, w) {
+  const pos = [], nor = [], uv = [];
+  for (const ring of rings) {
+    let area = 0; for (let i = 0; i < ring.length; i++) { const a = ring[i], b = ring[(i + 1) % ring.length]; area += a[0] * b[1] - b[0] * a[1]; }
+    const sgn = area > 0 ? 1 : -1; let u = 0;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length], dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy); if (L < .02) continue;
+      const nx = dy / L * sgn, ny = -dx / L * sgn;               // outward normal
+      const ix = -nx * w, iy = -ny * w, u1 = u + L;
+      const A0 = [a[0], y0, -a[1]], B0 = [b[0], y0, -b[1]], A1 = [a[0], y0 + h, -a[1]], B1 = [b[0], y0 + h, -b[1]], A2 = [a[0] + ix, y0 + h, -(a[1] + iy)], B2 = [b[0] + ix, y0 + h, -(b[1] + iy)];
+      const quad = (p, q, r, s, n, ua, ub) => { for (const [v, uu, vv] of [[p, ua, 0], [q, ub, 0], [r, ub, 1], [p, ua, 0], [r, ub, 1], [s, ua, 1]]) { pos.push(...v); nor.push(...n); uv.push(uu / 2, vv); } };
+      quad(A0, B0, B1, A1, [nx, 0, -ny], u, u1); quad(A1, B1, B2, A2, [0, 1, 0], u, u1);
+      u = u1;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
 }
 function segDist(x, y, a, b) { const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / l2)); return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); }
 

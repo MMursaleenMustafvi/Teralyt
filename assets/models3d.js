@@ -180,7 +180,7 @@ export function createMaterials() {
     // vacant land as on the site today: sandy soil with dry scrub; dusty road verges
     scrub: T(metres(groundTex('#ae9c79', ['#9c8a68', '#8f8a62', '#7f8456', '#c3b18d', '#a89470', '#6f7a4c'], 7000, 12, (g, w, h) => {
       const r = rng(31); for (let i = 0; i < 140; i++) { g.globalAlpha = .35; g.fillStyle = r() < .5 ? '#6f7a4c' : '#86825a'; g.beginPath(); g.arc(r() * w, r() * h, 2 + r() * 5, 0, 2 * PI); g.fill(); } g.globalAlpha = 1; }), 9)),
-    verge: T(metres(groundTex('#a8997e', ['#998a70', '#b6a88d', '#8d846a'], 3500, 13, null), 5)),
+    verge: T(metres(groundTex('#8fa066', ['#7f9258', '#9aa870', '#a69a72', '#748a4e', '#b0a47c'], 5200, 13, null), 6)),
     // plain colours
     white: S('#f2efe8'), cream: S('#e8dcc4'), sand: S('#d6b88a'), brick: S('#a5533a'), concrete: S('#b8b3aa'), darkConcrete: S('#7b7770'),
     roofGray: S('#8f8b84'), roofDark: S('#55524d'), terracotta: S('#a14b30'), wood: S('#7a5232'), red: S('#c3392b'), blue: S('#2e6fb6'),
@@ -189,6 +189,10 @@ export function createMaterials() {
     lattice: S('#9aa1a8', { metalness: .6, roughness: .4, wireframe: true }),
     gold: S('#d6a840', { metalness: .85, roughness: .28 }), domeGreen: S('#2e8a57', { metalness: .25, roughness: .35 }), domeWhite: S('#f5f3ee', { roughness: .35 }),
     glass: S('#6b93ab', { metalness: .55, roughness: .08 }), darkGlass: S('#2a3640', { metalness: .4, roughness: .15 }),
+    nalaWater: S('#3f6b66', { metalness: .15, roughness: .18 }),
+    plotground: T(metres(groundTex('#b7a67f', ['#a8976f', '#c4b48e', '#9c9468', '#b0a078'], 5000, 21, null), 8)),
+    plotMap: groundTex('#f4f1ea', ['#e6e0d2', '#ffffff', '#dcd5c2', '#ece6d6'], 2600, 22, (g, w, h) => { const r = rng(9); g.globalAlpha = .22; for (let i = 0; i < 60; i++) { g.fillStyle = r() < .5 ? '#c9d1a8' : '#d8cfb6'; g.beginPath(); g.arc(r() * w, r() * h, 3 + r() * 9, 0, 2 * PI); g.fill(); } g.globalAlpha = 1; }),
+    kerb: new THREE.MeshStandardMaterial({ map: tex(cv(64, 8, (g) => { g.fillStyle = '#e8c21a'; g.fillRect(0, 0, 32, 8); g.fillStyle = '#1c1c1c'; g.fillRect(32, 0, 32, 8); })), roughness: .7, side: THREE.DoubleSide }),
     water: S('#3c8fba', { metalness: .2, roughness: .05, emissive: new THREE.Color('#0b3550'), emissiveIntensity: .35 }),
     grave: S('#d9d4c6'), tank: S('#202020', { roughness: .6 }), rubber: S('#2b2b2b'),
     lampOn: new THREE.MeshStandardMaterial({ color: '#fff4d6', emissive: new THREE.Color('#ffd27a'), emissiveIntensity: 0 }),
@@ -209,6 +213,7 @@ export function createMaterials() {
   };
   M.night = night.concat([M.lampOn, M.clock]);
   M.water.normalMap = waterNormals(); M.water.normalMap.repeat.set(.08, .08); M.water.normalScale = new THREE.Vector2(.6, .6);
+  M.nalaWater.normalMap = waterNormals(); M.nalaWater.normalMap.repeat.set(.12, .12); M.nalaWater.normalScale = new THREE.Vector2(.25, .25);
   return M;
 }
 
@@ -296,7 +301,16 @@ export function makeKit(group, M, poly, hooks) {
   };
   k.tree = (x, z, type = 'round', s = 1) => hooks.tree(group, x, z, type, s);
   k.lamp = (x, z, ry = 0, type = 'park') => hooks.lamp(group, x, z, ry, type);
-  k.car = (x, z, ry = 0, color) => hooks.car(group, x, z, ry, color);
+  k.car = (x, z, ry = 0, color) => { if (pip(x, z, poly) && edgeDist(x, z, poly) > 1.6) hooks.car(group, x, z, ry, color); };
+  // a paved rectangle that must stay inside the site: shrink it until all corners fit; returns [w, d] or null
+  k.fitPlane = (w, d, mat, x, y, z, metres) => {
+    for (let i = 0; i < 7; i++) {
+      const ok = [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, -1], [0, 1]].every(([a, b]) => pip(x + a * w / 2, z + b * d / 2, poly));
+      if (ok) { k.plane(w, d, mat, x, y, z, 0, metres ? { metres: true } : {}); return [w, d]; }
+      w *= .8; if (i > 3) d *= .85;
+    }
+    return null;
+  };
   k.sign = (text, w, h, x, y, z, ry = 0, o = {}) => {
     const t = textTex(text, o);
     const face = new THREE.MeshStandardMaterial({ map: t, emissive: new THREE.Color('#ffffff'), emissiveMap: t, emissiveIntensity: 0, roughness: .6 });
@@ -412,7 +426,7 @@ B.school = (k, L, W, lm) => {
   if (free > 14 && W > 18) k.plane(Math.min(14, free - 2), Math.min(26, W - 10), M.basket, L / 2 - 2 - Math.min(14, free - 2) / 2, .06, 0);
   for (const [x, z] of [[L / 2 - 5, W / 2 - 5], [L / 2 - 5, -W / 2 + 5]]) k.tree(x, z, 'round', .9);
   for (let x = -L / 2 + 6; x < L / 2 - 4; x += 9) { k.tree(x, -W / 2 + 1.8, 'cone', .7); k.tree(x, W / 2 - 1.8, 'cone', .7); }
-  if (k.gate) k.sign('GOVT. PRIMARY SCHOOL', 9, 1.5, k.gate.x + k.gate.nx * .4, 2.4, k.gate.z + k.gate.nz * .4, k.gate.ry, { bg: '#7a2e1d', border: '#f1e6cf' });
+  if (k.gate) k.sign(lm.sign || 'GOVT. PRIMARY SCHOOL', 9, 1.5, k.gate.x + k.gate.nx * .4, 2.4, k.gate.z + k.gate.nz * .4, k.gate.ry, { bg: '#7a2e1d', border: '#f1e6cf' });
 };
 
 B.playground = (k, L, W) => {
@@ -516,11 +530,20 @@ B.park = (k, L, W, lm) => {
   // trees: perimeter row then scattered inside, avoiding paths and the centre
   for (let x = -L / 2 + 2.5; x <= L / 2 - 2.5; x += 7) for (const z of [-W / 2 + 2.3, W / 2 - 2.3]) if (k.inside(x, z, 1.5)) k.tree(x + (r() - .5), z, r() < .3 ? 'cone' : 'round', .8 + r() * .5);
   for (let z = -W / 2 + 9; z <= W / 2 - 9; z += 7) for (const x of [-L / 2 + 2.3, L / 2 - 2.3]) if (k.inside(x, z, 1.5)) k.tree(x, z + (r() - .5), 'round', .8 + r() * .5);
-  const n = Math.min(70, Math.floor(L * W / 140));
+  if (L > 120 && W > 90) {                      // large parks get a lake with an island
+    const lx = hx * .5, lz = -hz * .45, a = Math.min(34, L * .14), b = Math.min(22, W * .13), pts = [];
+    for (let i = 0; i < 40; i++) { const t = i / 40 * 2 * PI, rr = 1 + .12 * Math.sin(t * 3 + 1) + .07 * Math.cos(t * 5); pts.push([lx + Math.cos(t) * a * rr, lz + Math.sin(t) * b * rr]); }
+    k.shape(pts.map(([x, z]) => [lx + (x - lx) * 1.09, lz + (z - lz) * 1.12]), null, M.paving, .055);
+    k.shape(pts, null, M.water, .075);
+    k.cyl(3.2, 3.6, .5, 20, M.lawn, lx, .03, lz); k.tree(lx, lz, 'palm', 1.1);
+    k.lakes = [[lx, lz, a * 1.25, b * 1.3]];
+  }
+  const n = Math.min(big && L > 120 ? 320 : 70, Math.floor(L * W / 140));
   for (let i = 0, tries = 0; i < n && tries < n * 8; tries++) {
     const x = (r() - .5) * (L - 8), z = (r() - .5) * (W - 8);
     if (!k.inside(x, z, 3)) continue;
     if (Math.hypot(x, z) < 11 || Math.abs(z) < 2.5 || Math.abs(x) < 2.5) continue;
+    if (k.lakes && k.lakes.some(([cx, cz, ra, rb]) => ((x - cx) / ra) ** 2 + ((z - cz) / rb) ** 2 < 1)) continue;
     if (big && (Math.abs(Math.abs(x) - (hx - pw / 2)) < 2.5 || Math.abs(Math.abs(z) - (hz - pw / 2)) < 2.5)) continue;
     k.tree(x, z, r() < .15 ? 'palm' : r() < .35 ? 'cone' : 'round', .75 + r() * .6); i++;
   }
@@ -799,6 +822,88 @@ B.sewerage = (k, L, W) => {
   k.box(L * .7 - 1, .05, W * .25 - 1, M.water, 0, .5, W * .28);
   k.building(8, 6, 1, M.facCream, L / 2 - 6, -W / 2 + 5, 0, { tanks: false });
 };
+
+B.highschool = (k, L, W, lm) => B.school(k, L, W, lm);
+
+B.postoffice = (k, L, W) => {
+  // post office, police station and telephone exchange share one site on the official map
+  const M = k.M;
+  k.ground(M.paving, .03);
+  k.wall(1.6, .3, M.cream, 8, M.brick);
+  const bw = Math.min(L * .26, 22), bd = Math.min(W * .5, 20), z = -W / 2 + 4 + bd / 2;
+  const defs = [['POST OFFICE', M.facBrick, '#a3262a', -L * .31], ['POLICE STATION', M.facWhite, '#1f3f7a', 0], ['TELEPHONE EXCHANGE', M.facCream, '#1d6b3c', L * .31]];
+  for (const [text, fac, bg, x] of defs) {
+    k.building(bw, bd, 2, fac, x, z, 0, { tanks: false });
+    k.sign(text, Math.min(bw - 1, 11), 1.2, x, 4.2, z + bd / 2 + .15, 0, { bg, border: '#f2e6c8' });
+    k.plane(bw * .5, W / 2 - (z + bd / 2) - 2, M.paving, x, .05, (z + bd / 2 + W / 2 - 2) / 2, 0, { metres: true });
+  }
+  k.cyl(.5, 1.6, 26, 4, M.lattice, L * .31 + bw / 2 - 2, 2 * FLOOR + .45, z, { ry: PI / 4 });
+  k.cyl(.9, .9, .3, 16, M.white, L * .31 + bw / 2 - 2, 2 * FLOOR + 20, z);
+  k.flag(0, W / 2 - 5, 11);
+  for (const x of [-L * .12, L * .12]) k.car(x, W / 2 - 6, PI / 2, '#1f3f7a');
+  k.fillTrees(defs.map(([, , , x]) => [x - bw / 2 - 1, z - bd / 2 - 1, x + bw / 2 + 1, W / 2 - 3]), 9, 12);
+};
+
+B.community = (k, L, W) => {
+  const M = k.M;
+  k.ground(M.paving, .03);
+  const bw = Math.min(L * .6, 46), bd = Math.min(W * .5, 26);
+  k.fbox(bw, 8, bd, M.facSand, 0, 0, -W * .08);
+  const roof = new THREE.CylinderGeometry(bd / 2 + .6, bd / 2 + .6, bw + 1, 3, 1).rotateZ(PI / 2).scale(1, .35, 1).translate(0, bd * .0875, 0);
+  k.geo(roof, M.terracotta, 0, 8, -W * .08);
+  k.box(bw * .4, 5, 4, M.white, 0, 0, -W * .08 + bd / 2 + 2); for (const x of [-bw * .17, bw * .17]) k.cyl(.35, .35, 5, 12, M.white, x, 0, -W * .08 + bd / 2 + 3.6);
+  k.sign('COMMUNITY CENTRE', Math.min(bw * .5, 14), 1.5, 0, 5.2, -W * .08 + bd / 2 + 4.1, 0, { bg: '#5b4a2a', border: '#e8d7a8' });
+  for (let x = -L / 2 + 5; x < L / 2 - 4; x += 2.7) if (((x * 11) | 0) % 3) k.car(x, W / 2 - 5, PI / 2);
+  k.fillTrees([[-bw / 2 - 2, -W * .08 - bd / 2 - 2, bw / 2 + 2, -W * .08 + bd / 2 + 6], [-L / 2, W / 2 - 9, L / 2, W / 2]], 10, 14);
+};
+
+B.hotel = (k, L, W) => {
+  // site reserved for a five star hotel on the official map: tower on a podium with a pool
+  const M = k.M;
+  k.ground(M.lawn, .03);
+  k.wall(1.4, .3, M.white, 12, M.white);
+  const pw = Math.min(L * .5, 70), pd = Math.min(W * .4, 46), px = -L * .12, pz = -W * .1;
+  k.fbox(pw, 9, pd, M.facShop, px, 0, pz);
+  k.box(pw + 1, .6, pd + 1, M.white, px, 9, pz);
+  const tw = pw * .55, td = pd * .5, floors = 14;
+  const top = k.building(tw, td, floors, M.facGlass, px, pz, 0, { y: 9.6, tanks: false, parapetMat: M.steel });
+  k.box(tw * .5, 3, td * .5, M.steel, px, top, pz);
+  k.sign('FIVE STAR HOTEL SITE', Math.min(tw * .9, 22), 2.6, px, top - 5, pz + td / 2 + .2, 0, { bg: '#0d2238', fg: '#f2d27a', border: '#f2d27a' });
+  k.box(pw * .4, .5, 9, M.white, px, 5, pz + pd / 2 + 4.5); for (const x of [-pw * .17, pw * .17]) k.cyl(.4, .4, 5, 12, M.white, px + x, 0, pz + pd / 2 + 8);
+  const sx = px + pw / 2 + 16, sz = pz;
+  if (sx + 14 < L / 2 - 4) { k.box(22, .5, 12, M.marble, sx, .03, sz); k.box(20, .05, 10, M.water, sx, .53, sz); for (let i = -2; i <= 2; i++) k.tree(sx + i * 5, sz + 9, 'palm', .9); }
+  const pkz = Math.min(W / 2 - 9, pz + pd / 2 + 24), pk = k.fitPlane(Math.min(L - 16, pw * 1.3), 12, M.parking, px, .05, pkz);
+  if (pk) for (let x = px - pk[0] / 2 + 2; x < px + pk[0] / 2 - 2; x += 2.7) if (((x * 7) | 0) % 4) k.car(x, pkz - 1.5, PI / 2);
+  k.fillTrees([[px - pw / 2 - 3, pz - pd / 2 - 3, px + pw / 2 + 3, pz + pd / 2 + 12], [sx - 13, sz - 8, sx + 13, sz + 11], pk ? [px - pk[0] / 2 - 1, pkz - 8, px + pk[0] / 2 + 1, pkz + 8] : [0, 0, 0, 0]], 11, 15, ['round', 'palm', 'round']);
+};
+
+B.firestation = (k, L, W) => {
+  const M = k.M;
+  k.ground(M.paving, .03);
+  const bw = Math.min(L * .7, 30), bd = Math.min(W * .5, 14), z = -W / 2 + 3 + bd / 2;
+  k.building(bw, bd, 2, M.facCream, 0, z, 0, { tanks: false, parapetMat: M.red });
+  const n = Math.max(2, Math.floor(bw / 8));
+  for (let i = 0; i < n; i++) { const x = -bw / 2 + (i + .5) * bw / n; k.box(bw / n - 1.6, 4.4, .3, M.red, x, 0, z + bd / 2 + .1); k.box(bw / n - 2.4, .5, .34, M.white, x, 2.6, z + bd / 2 + .12); }
+  k.sign('FIRE BRIGADE', Math.min(bw * .6, 12), 1.3, 0, 5.4, z + bd / 2 + .2, 0, { bg: '#b3261e', border: '#f2e6c8' });
+  k.box(3.2, 16, 3.2, M.cream, bw / 2 - 1.6, 0, z - 1); k.box(3.8, .5, 3.8, M.red, bw / 2 - 1.6, 16, z - 1);
+  for (let i = 0; i < Math.min(2, n); i++) { const x = -bw / 2 + (i + .5) * bw / n, zz = z + bd / 2 + 7; k.box(2.5, 2.6, 8, M.red, x, .5, zz); k.box(2.4, 1.2, 2.2, M.darkGlass, x, 2.1, zz + 3); k.box(1.2, .3, 6, M.steel, x, 3.1, zz - .6); for (const [a, b] of [[-1.1, -2.6], [1.1, -2.6], [-1.1, 2.6], [1.1, 2.6]]) k.cyl(.5, .5, .4, 10, M.rubber, x + a, 0, zz + b, { rz: PI / 2 }); }
+};
+
+B.office = (k, L, W, lm) => {
+  const M = k.M;
+  k.ground(M.lawn, .03);
+  k.wall(1.6, .3, M.cream, 8, M.sand);
+  const bw = Math.min(L * .55, 44), bd = Math.min(W * .4, 20);
+  const top = k.building(bw, bd, 3, M.facWhite, 0, -W * .1, 0, { parapetMat: M.white });
+  k.box(bw * .3, 4.2, 5, M.white, 0, 0, -W * .1 + bd / 2 + 2.5);
+  k.sign((lm.name || 'OFFICE').toUpperCase(), Math.min(bw * .5, 12), 1.4, 0, top - 2.6, -W * .1 + bd / 2 + .2, 0, { bg: '#2d3b6b', border: '#e8d7a8' });
+  const pk = k.fitPlane(Math.min(L - 10, bw), 10, M.parking, 0, .05, W / 2 - 8);
+  if (pk) for (let x = -pk[0] / 2 + 2; x < pk[0] / 2 - 2; x += 2.7) if (((x * 5) | 0) % 3) k.car(x, W / 2 - 9, PI / 2);
+  k.flag(-bw / 2 - 4, -W * .1 + bd / 2 + 4, 11);
+  k.fillTrees([[-bw / 2 - 2, -W * .1 - bd / 2 - 2, bw / 2 + 2, -W * .1 + bd / 2 + 6], [-L / 2, W / 2 - 14, L / 2, W / 2]], 10, 16);
+};
+
+B.shops = (k, L, W, lm) => B.commercial(k, L, W, lm);
 
 export function buildLandmark(kind, k, L, W, lm) {
   const f = B[kind];
