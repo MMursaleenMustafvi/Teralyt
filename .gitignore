@@ -6,3 +6,6 @@ assets/config.js
 Thumbs.db
 __pycache__/
 *.pyc
+
+# downloaded source images (official plan); fetched by tools/make_data.py
+tools/source/cache/
