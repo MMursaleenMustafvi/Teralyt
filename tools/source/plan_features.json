@@ -1,5 +1,5 @@
 {
- "about": "Features digitised from the official FDA City plan (Advice Associates brochure, fdacity.pk) and its block maps. Coordinates are pixels of the 1600x1152 overall plan image (x right, y down). The plan is georeferenced with a similarity transform fitted to three roundabouts (residuals under 3 m).",
+ "about": "Features digitised from the official FDA City plan (Advice Associates brochure, fdacity.pk) and its block maps. Coordinates are pixels of the named sheet (x right, y down); the default sheet is the 1600x1152 overall plan. Each sheet is georeferenced with a similarity transform fitted to roundabouts.",
  "plan_image": {
   "url": "https://fdacity.pk/images/fdacity%20map.jpg",
   "size": [
@@ -330,34 +330,6 @@
    ]
   },
   {
-   "kind": "metro",
-   "name": "Metro Store",
-   "block": null,
-   "outside": true,
-   "px": [
-    [
-     18,
-     452
-    ],
-    [
-     92,
-     445
-    ],
-    [
-     140,
-     520
-    ],
-    [
-     205,
-     592
-    ],
-    [
-     72,
-     628
-    ]
-   ]
-  },
-  {
    "kind": "grid",
    "name": "Grid Station",
    "block": "F",
@@ -427,19 +399,257 @@
      800
     ]
    ]
+  },
+  {
+   "kind": "highschool",
+   "name": "Girls High School",
+   "kanal": 22.68,
+   "rect": [
+    1181,
+    534,
+    1278,
+    628
+   ],
+   "sign": "GIRLS HIGH SCHOOL",
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "postoffice",
+   "name": "Post Office, Police Station and Telephone Exchange",
+   "kanal": 19.46,
+   "rect": [
+    1278,
+    534,
+    1331,
+    628
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "highschool",
+   "name": "Boys High School",
+   "kanal": 24.36,
+   "rect": [
+    1331,
+    534,
+    1434,
+    628
+   ],
+   "sign": "BOYS HIGH SCHOOL",
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "community",
+   "name": "Community Centre",
+   "kanal": 9.58,
+   "rect": [
+    1181,
+    741,
+    1242,
+    799
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "park",
+   "name": "Markazi Park (Central Park)",
+   "kanal": 74.76,
+   "rect": [
+    1180,
+    641,
+    1367,
+    799
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "mosque",
+   "name": "Jamia Masjid (Block A)",
+   "kanal": 10.51,
+   "rect": [
+    1381,
+    642,
+    1434,
+    709
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "hotel",
+   "name": "Five Star Hotel site",
+   "kanal": 54.64,
+   "rect": [
+    1180,
+    806,
+    1306,
+    960
+   ],
+   "proposed": true,
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "commercial",
+   "name": "Commercial Zone",
+   "kanal": 12.72,
+   "rect": [
+    1311,
+    806,
+    1367,
+    884
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "hospital",
+   "name": "Hospital (Block A)",
+   "kanal": 8.0,
+   "rect": [
+    1381,
+    819,
+    1434,
+    884
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "firestation",
+   "name": "Fire Brigade",
+   "kanal": 8.5,
+   "rect": [
+    1487,
+    856,
+    1537,
+    884
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "office",
+   "name": "PMU Office",
+   "kanal": 16.27,
+   "rect": [
+    335,
+    1105,
+    400,
+    1195
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Block A)",
+   "rect": [
+    1272,
+    275,
+    1291,
+    322
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "school",
+   "name": "Primary School (A-3)",
+   "kanal": 7.58,
+   "rect": [
+    677,
+    999,
+    752,
+    1050
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "mosque",
+   "name": "Jamia Mosque (A-3)",
+   "kanal": 5.46,
+   "rect": [
+    699,
+    1050,
+    752,
+    1084
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "playground",
+   "name": "Playground A-3",
+   "kanal": 25.2,
+   "rect": [
+    752,
+    966,
+    833,
+    1084
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (Park A-2)",
+   "kanal": 1.73,
+   "rect": [
+    417,
+    815,
+    455,
+    840
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Park A-2)",
+   "kanal": 2.28,
+   "rect": [
+    455,
+    815,
+    492,
+    840
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "kind": "mosque",
+   "name": "Masjid (Park F-2)",
+   "block": "F",
+   "sheet": "A",
+   "rect": [
+    1160,
+    1188,
+    1186,
+    1206
+   ]
+  },
+  {
+   "kind": "metro",
+   "name": "Metro Store",
+   "block": null,
+   "outside": true,
+   "sheet": "A",
+   "rect": [
+    40,
+    830,
+    225,
+    1060
+   ]
   }
  ],
  "complexes": [
-  {
-   "block": "A",
-   "px": [
-    828,
-    352,
-    890,
-    408
-   ],
-   "parts": "standard"
-  },
   {
    "block": "B",
    "px": [
@@ -658,7 +868,8 @@
     1294,
     83
    ],
-   "block": "C"
+   "block": "C",
+   "name": "Park C-3 (north)"
   },
   {
    "px": [
@@ -668,7 +879,8 @@
     98
    ],
    "block": "B",
-   "kanal": 4.51
+   "kanal": 4.51,
+   "name": "Park (Block B, 4.51 kanal)"
   },
   {
    "px": [
@@ -692,15 +904,6 @@
   },
   {
    "px": [
-    864,
-    155,
-    887,
-    172
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
     1001,
     170,
     1010,
@@ -709,15 +912,6 @@
    "block": "B",
    "name": "Park B-2",
    "kanal": 1.75
-  },
-  {
-   "px": [
-    724,
-    176,
-    777,
-    205
-   ],
-   "block": "A"
   },
   {
    "px": [
@@ -762,15 +956,6 @@
   },
   {
    "px": [
-    836,
-    262,
-    861,
-    279
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
     1161,
     307,
     1194,
@@ -792,15 +977,6 @@
   },
   {
    "px": [
-    731,
-    339,
-    741,
-    361
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
     996,
     406,
     1048,
@@ -809,42 +985,6 @@
    "block": "B",
    "name": "Park B-1",
    "kanal": 16.55
-  },
-  {
-   "px": [
-    696,
-    414,
-    721,
-    425
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
-    431,
-    424,
-    455,
-    452
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
-    644,
-    541,
-    673,
-    567
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
-    391,
-    549,
-    429,
-    563
-   ],
-   "block": "A"
   },
   {
    "px": [
@@ -868,24 +1008,6 @@
   },
   {
    "px": [
-    719,
-    575,
-    747,
-    597
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
-    357,
-    597,
-    375,
-    615
-   ],
-   "block": "A"
-  },
-  {
-   "px": [
     1002,
     604,
     1022,
@@ -903,15 +1025,6 @@
    ],
    "block": "D",
    "name": "Park D-1"
-  },
-  {
-   "px": [
-    735,
-    611,
-    768,
-    625
-   ],
-   "block": "A"
   },
   {
    "px": [
@@ -940,7 +1053,8 @@
     888,
     758
    ],
-   "block": "F"
+   "block": "F",
+   "name": "Park F-4"
   },
   {
    "px": [
@@ -1009,7 +1123,8 @@
     901,
     868
    ],
-   "block": "F"
+   "block": "F",
+   "name": "Park F-5"
   },
   {
    "px": [
@@ -1028,7 +1143,8 @@
     901,
     938
    ],
-   "block": "F"
+   "block": "F",
+   "name": "Park F-6"
   },
   {
    "px": [
@@ -1057,7 +1173,8 @@
     901,
     1072
    ],
-   "block": "F"
+   "block": "F",
+   "name": "Park F-6 (south)"
   },
   {
    "px": [
@@ -1071,16 +1188,6 @@
   },
   {
    "px": [
-    801,
-    665,
-    813,
-    699
-   ],
-   "block": "F",
-   "name": "Park F-2"
-  },
-  {
-   "px": [
     1308,
     394,
     1357,
@@ -1088,6 +1195,136 @@
    ],
    "block": "C",
    "name": "Park C-1"
+  },
+  {
+   "px": [
+    878,
+    636,
+    898,
+    656
+   ],
+   "block": "F",
+   "name": "Park F-3",
+   "kanal": 1.82
+  },
+  {
+   "name": "Park A-1",
+   "kanal": 18.8,
+   "rect": [
+    336,
+    1037,
+    420,
+    1090
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park A-1 (south)",
+   "kanal": 3.01,
+   "rect": [
+    249,
+    1137,
+    330,
+    1206
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park A-2",
+   "kanal": 10.6,
+   "rect": [
+    417,
+    750,
+    492,
+    815
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park A-3",
+   "kanal": 2.54,
+   "rect": [
+    905,
+    1016,
+    967,
+    1081
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park A-4",
+   "kanal": 3.69,
+   "rect": [
+    1012,
+    734,
+    1072,
+    764
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park A-5",
+   "kanal": 14.34,
+   "rect": [
+    1066,
+    200,
+    1198,
+    270
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park A-6",
+   "kanal": 5.26,
+   "rect": [
+    1391,
+    162,
+    1437,
+    199
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park A-7",
+   "kanal": 6.22,
+   "rect": [
+    1331,
+    396,
+    1383,
+    452
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park (Block A strip)",
+   "rect": [
+    1092,
+    569,
+    1114,
+    625
+   ],
+   "sheet": "A",
+   "block": "A"
+  },
+  {
+   "name": "Park F-2",
+   "kanal": 1.67,
+   "block": "F",
+   "sheet": "A",
+   "rect": [
+    1090,
+    1190,
+    1160,
+    1206
+   ]
   }
  ],
  "facilities": [
@@ -1100,17 +1337,6 @@
     113,
     1104,
     123
-   ]
-  },
-  {
-   "kind": "mosque",
-   "name": "Mosque (A north)",
-   "block": "A",
-   "px": [
-    810,
-    215,
-    824,
-    229
    ]
   },
   {
@@ -1235,5 +1461,222 @@
     90
    ]
   }
- ]
+ ],
+ "sheets": {
+  "overall": {
+   "about": "Overall plan, 1600x1152",
+   "control_points": [
+    {
+     "px": [
+      945,
+      487
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "Roundabout between Block A and Block B (OSM way 286093895)"
+    },
+    {
+     "px": [
+      1220,
+      487
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "Roundabout between Block B and Block C (OSM way 286093126)"
+    },
+    {
+     "px": [
+      570,
+      630
+     ],
+     "lonlat": [
+      73.078424,
+      31.511277
+     ],
+     "what": "Block A south-west roundabout (OSM way 376583795)"
+    }
+   ]
+  },
+  "A": {
+   "about": "Block A map: pages Block_A_01..03 from fdacity.pk/images/fdacity/fda_a/ stacked top to bottom (1600x1308)",
+   "urls": [
+    "https://fdacity.pk/images/fdacity/fda_a/Block_A_01.jpg",
+    "https://fdacity.pk/images/fdacity/fda_a/Block_A_02.jpg",
+    "https://fdacity.pk/images/fdacity/fda_a/Block_A_03.jpg"
+   ],
+   "control_points": [
+    {
+     "px": [
+      735,
+      1227
+     ],
+     "lonlat": [
+      73.078424,
+      31.511277
+     ],
+     "what": "Block A south-west roundabout"
+    },
+    {
+     "px": [
+      1569,
+      900
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "Roundabout between Block A and Block B"
+    }
+   ]
+  }
+ },
+ "road_lines": [
+  {
+   "class": "road110",
+   "sheet": "A",
+   "px": [
+    [
+     465,
+     395
+    ],
+    [
+     558,
+     700
+    ],
+    [
+     630,
+     906
+    ],
+    [
+     672,
+     1030
+    ],
+    [
+     717,
+     1162
+    ],
+    [
+     735,
+     1215
+    ]
+   ],
+   "name": "110 ft road"
+  },
+  {
+   "class": "road85",
+   "sheet": "A",
+   "px": [
+    [
+     1169,
+     525
+    ],
+    [
+     1560,
+     525
+    ]
+   ],
+   "name": "85 ft road"
+  },
+  {
+   "class": "road85",
+   "sheet": "A",
+   "px": [
+    [
+     1169,
+     505
+    ],
+    [
+     1169,
+     950
+    ]
+   ],
+   "name": "85 ft road",
+   "planned_if_missing": true
+  },
+  {
+   "class": "main",
+   "px": [
+    [
+     1585,
+     487
+    ],
+    [
+     1220,
+     487
+    ],
+    [
+     945,
+     487
+    ],
+    [
+     877,
+     487
+    ],
+    [
+     800,
+     525
+    ],
+    [
+     725,
+     580
+    ],
+    [
+     675,
+     612
+    ],
+    [
+     600,
+     632
+    ],
+    [
+     570,
+     632
+    ]
+   ],
+   "name": "Main Boulevard (202 ft)"
+  },
+  {
+   "class": "main",
+   "sheet": "A",
+   "px": [
+    [
+     735,
+     1219
+    ],
+    [
+     395,
+     1219
+    ],
+    [
+     300,
+     1170
+    ],
+    [
+     250,
+     1090
+    ],
+    [
+     200,
+     900
+    ],
+    [
+     105,
+     775
+    ]
+   ],
+   "name": "Main entrance road"
+  }
+ ],
+ "official_widths_ft": {
+  "main": 202,
+  "divider": 85,
+  "road85": 85,
+  "road110": 110,
+  "collector": 60,
+  "residential": 40
+ }
 }

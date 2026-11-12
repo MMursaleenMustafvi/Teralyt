@@ -31,18 +31,18 @@
 <div class="tools"><button class="btn act" data-l="real">Realistic</button><button class="btn o" data-l="cls">Development</button><button class="btn o" data-l="stat">Plot status</button><button class="btn o" data-l="sat">Built / vacant</button><button class="btn o" data-l="size">Plot size</button><span class="sep"></span><button class="btn o om" id="tn" title="Toggle day and night">Night</button><button class="btn o om" id="gr" title="Show today's satellite photo under the plan">Satellite photo</button><button class="btn o om" id="tour" title="Fly through the main places of FDA City">&#9654; Tour</button><button class="btn o om" id="lb">Labels on</button><button class="btn o" id="rs">Reset view</button><button class="btn o" id="zi" aria-label="Zoom in">+</button><button class="btn o" id="zo" aria-label="Zoom out">&minus;</button><div class="sw"><input id="mq" placeholder="Find plot (B-12), block, mosque, school, park D-3, or lat, lon" autocomplete="off"><div class="dd" id="mr"></div></div></div>
 <div class="blk">Jump to block <button class="btn o" data-b="A">A</button><button class="btn o" data-b="B">B</button><button class="btn o" data-b="C">C</button><button class="btn o" data-b="D">D</button><button class="btn o" data-b="E">E</button><button class="btn o" data-b="F">F</button></div>
 <div class="flt om" id="flt">Show <button class="chip2 on" data-s="5 Marla"><i style="background:#8fd16a"></i>5 Marla</button><button class="chip2 on" data-s="10 Marla"><i style="background:#ee8fb8"></i>10 Marla</button><button class="chip2 on" data-s="20 Marla"><i style="background:#7fa6e6"></i>20 Marla</button><button class="chip2 on" data-s="Commercial"><i style="background:#f0a040"></i>Commercial</button><span class="sep" style="width:1px;height:18px;background:var(--ln);margin:0 4px"></span><button class="chip2 on" data-t="Available">Available</button><button class="chip2 on" data-t="Reserved">Reserved</button><button class="chip2 on" data-t="Sold">Sold</button><button class="chip2 on" data-t="Unknown">Unknown</button><span id="fcount"></span></div>
-<div class="grid" style="grid-template-columns:minmax(0,2.4fr) minmax(280px,1fr)"><div class="stage" id="stage"><div id="model"></div><div id="cesium" hidden></div><div class="st" id="st"><div><span class="sp"></span>Starting 3D view…</div></div><div id="tip" hidden></div><span class="hint" id="hint">Road widths measured on satellite imagery · layout from the official FDA City maps</span><div class="attr" id="attr" hidden>Satellite imagery © Esri, Maxar, Earthstar Geographics</div><div class="cap" id="cap" hidden></div><div class="leg" id="lg"></div></div>
+<div class="grid" style="grid-template-columns:minmax(0,2.4fr) minmax(280px,1fr)"><div class="stage" id="stage"><div id="model"></div><div id="cesium" hidden></div><div class="st" id="st"><div><span class="sp"></span>Starting 3D view…</div></div><div id="tip" hidden></div><span class="hint" id="hint">Layout from the official FDA City maps · road widths measured on satellite imagery</span><div class="attr" id="attr" hidden>Satellite imagery © Esri, Maxar, Earthstar Geographics</div><div class="cap" id="cap" hidden></div><div class="leg" id="lg"></div></div>
 <div class="card" id="side"></div></div>
-<div class="note"><b>Data sources.</b> Layout of blocks A to F, plot sizes, parks, mosques, schools, playgrounds, commercial areas and special sites: the official FDA City plan and block maps, aligned to satellite imagery (about 3 m error at the roundabouts). Street centrelines: OpenStreetMap. The Barani Nala storm drain is traced from satellite imagery. Positions are marked <em>approximate</em>. Plot status, development class and heights are sample values. Landmark buildings are illustrative 3D models of the facilities on the official map. Real records and the AI/ML model output will replace the samples without changing the map code.</div></div>
+<div class="note"><b>Data sources.</b> Blocks A to F, plot sizes, parks, mosques, schools and all named sites: the official FDA City plan and block maps, aligned to satellite imagery at the roundabouts. Street centrelines: OpenStreetMap. Road widths, roundabouts and the Barani Nala: measured on satellite imagery. Positions are marked <em>approximate</em>. Plot outlines are drawn at the official sizes inside the real street blocks; plot status, development class and heights are sample values. Buildings are illustrative 3D models of the facilities named on the official map.</div></div>
 <script type="module">
 import { Society3D } from './assets/society3d.js';
 const LG={real:[['#b3a079','Plot (vacant land)'],['#3f8f3f','Park'],['#3a3b3e','Road'],['#3c8fba','Nalla']],size:[['#8fd16a','5 Marla'],['#ee8fb8','10 Marla'],['#7fa6e6','20 Marla'],['#f0a040','Commercial']],cls:[['#3fae5f','High'],['#e0a93a','Medium'],['#c9573f','Low']],stat:[['#34c38f','Available'],['#e0a93a','Reserved'],['#c9573f','Sold'],['#9aa5a0','Unknown']],sat:[['#9c8a72','Built'],['#ddd2b2','Vacant']]};
 const $=id=>document.getElementById(id),side=$('side'),st=$('st'),tip=$('tip'),L=$('lg');
 let layer='real',view='model',model=null,earth=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function leg(){L.innerHTML=LG[layer].map(x=>'<span><i style="background:'+x[0]+'"></i>'+x[1]+'</span>').join('')}leg();
+function leg(){const k=(view==='earth'&&(layer==='real'||layer==='size'))?'cls':layer;L.innerHTML=LG[k].map(x=>'<span><i style="background:'+x[0]+'"></i>'+x[1]+'</span>').join('')}leg();
 function setStatus(state,msg){if(state==='ready'){st.hidden=true;return}st.hidden=false;st.className='st '+state;st.innerHTML=state==='error'?'<div><b>3D map unavailable</b>'+esc(msg)+'</div>':'<div><span class="sp"></span>'+esc(msg)+'</div>'}
-const QUICK=[['Barani Nala','Nalla'],['Jamia Mosque (B)','Mosque'],['Govt. Primary School (E)','School'],['FDA City Hospital','Hospital'],['Area for FDA City Homes','FDA City Homes'],['Proposed Cricket Stadium','Stadium'],['Multi-Purpose Uses','Multi-purpose'],['Grid Station','Grid station'],['Metro Store','Metro'],['Park B-1','Park']];
+const QUICK=[['Markazi Park','Central Park'],['Jamia Mosque (B)','Mosque'],['Boys High School','High school'],['FDA City Hospital','Hospital'],['Five Star Hotel site','Hotel site'],['Barani Nala','Nalla'],['Area for FDA City Homes','FDA City Homes'],['Proposed Cricket Stadium','Stadium'],['Fire Brigade','Fire brigade'],['Metro Store','Metro']];
 function idle(){
   const n=model&&model.plots?model.plots.length.toLocaleString():'…',m=model&&model.landmarks?model.landmarks.length:'…';
   side.innerHTML='<h3>Select a plot or building</h3><p class="mut">Click any plot, mosque, school, park or other building on the map, or search above, to see its details.</p><div class="prov"><span><b>Society</b> FDA City, Faisalabad</span><span><b>Plots</b> '+n+'</span><span><b>Landmarks</b> '+m+'</span><span><b>Blocks</b> A–F</span></div>'
@@ -110,7 +110,7 @@ async function switchView(v){
   document.querySelectorAll('[data-v]').forEach(b=>b.classList.toggle('act',b.dataset.v===v));
   document.querySelectorAll('.om').forEach(b=>b.hidden=v!=='model');if(v!=='model'&&touring)stopTour();
   $('model').hidden=v!=='model';$('cesium').hidden=v!=='earth';$('attr').hidden=!(v==='model'&&model.ground==='satellite');$('hint').hidden=v!=='model';
-  tip.hidden=true;
+  tip.hidden=true;leg();
   if(v==='earth'){const e=await openEarth();if(e){e.ready.then(()=>{setStatus('ready');e.setLayer(layer);const s=model.selected;if(s&&s.plot)e.select(s.plot)}).catch(()=>{})}}
   else{setStatus(model.rendered()?'ready':'loading','Building 3D model…');model.resize();idle()}
 }
@@ -122,7 +122,7 @@ document.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{layer=b.dataset.
 document.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{active().flyToBlock(b.dataset.b);if(active()===model)blockPanel(model.blockStats(b.dataset.b))});
 $('rs').onclick=()=>active().reset();$('zi').onclick=()=>active().zoomIn();$('zo').onclick=()=>active().zoomOut();
 function toggleNight(){const n=model.time!=='night';model.setTime(n?'night':'day');$('tn').textContent=n?'Day':'Night';$('tn').className='btn '+(n?'act':'o')+' om'}
-async function toggleGround(){const s=model.ground!=='satellite';$('gr').disabled=true;const g=await model.setGround(s?'satellite':'plan');$('gr').disabled=false;$('gr').className='btn '+(g==='satellite'?'act':'o')+' om';$('gr').textContent=g==='satellite'?'3D model ground':'Satellite photo';$('attr').hidden=g!=='satellite';$('hint').textContent=g==='satellite'?'Plan over today\'s satellite photo':'Road widths measured on satellite imagery · layout from the official FDA City maps'}
+async function toggleGround(){const s=model.ground!=='satellite';$('gr').disabled=true;const g=await model.setGround(s?'satellite':'plan');$('gr').disabled=false;$('gr').className='btn '+(g==='satellite'?'act':'o')+' om';$('gr').textContent=g==='satellite'?'3D model ground':'Satellite photo';$('attr').hidden=g!=='satellite';$('hint').textContent=g==='satellite'?'Plan over today\'s satellite photo':'Layout from the official FDA City maps · road widths measured on satellite imagery'}
 function toggleLabels(){model.setLabels(!model.labels);$('lb').textContent=model.labels?'Labels on':'Labels off';$('lb').className='btn '+(model.labels?'o':'act')+' om'}
 $('tn').onclick=toggleNight;$('gr').onclick=toggleGround;$('lb').onclick=toggleLabels;
 function applyFilter(){
@@ -133,16 +133,16 @@ function applyFilter(){
 }
 document.querySelectorAll('#flt .chip2').forEach(b=>b.onclick=()=>{b.classList.toggle('on');applyFilter()});
 const TOUR=[
-  ['Main Boulevard (202 ft)',null,'The 202 ft main boulevard runs through the middle of FDA City, with commercial plots on both sides and roundabouts at each block corner.'],
+  ['Main Boulevard (202 ft)',null,'The 202 ft main boulevard: two three-lane carriageways with a planted median, service roads on both sides and commercial plots along it.'],
+  ['Markazi Park','lm','Block A: Markazi Park, the 74.76 kanal central park, with the community centre inside it.'],
+  ['Boys High School','lm','Next to the park the official map places the Girls and Boys High Schools, with the post office, police station and telephone exchange between them.'],
+  ['Five Star Hotel site','lm','South of the park: the site reserved for a five star hotel, the commercial zone, the Block A hospital and the fire brigade.'],
   ['Jamia Mosque (B)','lm','Every block has a central complex. In Block B: Jamia Mosque (5 kanal), primary school (13.9 kanal), a 25.5 kanal playground, dispensary and commercial area.'],
   ['Barani Nala','lm','The Barani Nala storm drain crosses Block B and runs along Block F. No plots are placed on the channel or its banks.'],
-  ['Park B-1','lm','Large green parks like Park B-1 (16.55 kanal) sit inside every block.'],
   ['Proposed Cricket Stadium','lm','North-east of Block C the plan reserves sites for a university, a cricket stadium and an IMAX theatre.'],
-  ['Multi-Purpose Uses','lm','A large multi-purpose zone sits next to the motorway.'],
   ['Jamia Mosque (D)','lm','Block D centre: Jamia Mosque, primary school, 24.9 kanal playground and commercial area.'],
   ['FDA City Hospital','lm','The Area for FDA City Homes has a hospital, sports complex, public building, school and playground E-6.'],
-  ['Existing Graveyard','lm','Block F runs along the nalla beside the village of Samana, with its graveyard and the grid station.'],
-  ['Metro Store',null,'Near the motorway interchange stands the Metro store, shown on the official plan.']
+  ['Metro Store',null,'At the main entrance from Sargodha Road stands the Metro store, shown on the official plan.']
 ];
 let touring=null;
 function stopTour(){touring=null;$('cap').hidden=true;$('tour').innerHTML='&#9654; Tour';$('tour').className='btn o om'}
