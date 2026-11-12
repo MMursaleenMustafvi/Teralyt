@@ -22,8 +22,9 @@ import { createMaterials, makeKit, buildLandmark, buildGate, rng } from './model
 
 const PI = Math.PI;
 const LAT_REF = 31.525, KX = 111320 * Math.cos(LAT_REF * PI / 180), KY = 111320;
-const Y = { road: .04, mark: .075, curb: .18, lawn: .185, land: .19, plotBase: .19, plotTop: .55, median: .32 };
+const Y = { road: .04, verge: .07, mark: .075, curb: .18, lawn: .185, land: .19, plotBase: .19, plotTop: .3, median: .32 };
 const COLORS = {
+  real: {},
   cls: { High: '#3fae5f', Medium: '#e0a93a', Low: '#c9573f' },
   stat: { Available: '#34c38f', Reserved: '#e0a93a', Sold: '#c9573f', Unknown: '#9aa5a0' },
   sat: { built: '#9c8a72', vacant: '#ddd2b2' },
@@ -34,7 +35,7 @@ const KIND_COLOR = { dispensary: '#c3392b', homes: '#b5651d', metro: '#0b3a7a', 
 
 export function Society3D(el, opts = {}) {
   opts = Object.assign({ dataUrl: 'data/', layer: 'cls', onPick: null, onHover: null, onStatus: null }, opts);
-  const api = { plots: [], landmarks: [], layer: opts.layer, time: 'day', ground: 'plan', labels: true, selected: null };
+  const api = { plots: [], landmarks: [], layer: opts.layer || 'real', time: 'day', ground: 'plan', labels: true, selected: null };
   const status = (s, m) => { if (opts.onStatus) opts.onStatus(s, m); };
   const tick = () => new Promise(r => requestAnimationFrame(() => r()));
 
@@ -188,11 +189,13 @@ export function Society3D(el, opts = {}) {
     // society ground, road surfaces and parcels
     layers.stylised.push(addMesh(flatGeom(boundary.features, .0), M.grass));
     layers.stylised.push(addMesh(flatGeom(outer.features, Y.road - .01), M.asphalt));
-    layers.stylised.push(addMesh(flatGeom(surface.features, Y.road), M.asphalt));
+    layers.stylised.push(addMesh(flatGeom(surface.features, Y.road, f => f.properties.kind !== 'verge'), M.asphalt));
+    layers.stylised.push(addMesh(flatGeom(surface.features, Y.verge, f => f.properties.kind === 'verge'), M.verge));
     const isLand = f => f.properties.layer === 'land', isInner = f => f.properties.layer === 'inner';
     const parcelLike = f => f.properties.kind === 'parcel' || f.properties.kind === 'greenbelt';
     layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.curb - Y.road, f => isLand(f) && parcelLike(f)), M.sidewalk));
-    layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn, f => isInner(f) && f.properties.kind === 'parcel'), M.grass));
+    layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn, f => isInner(f) && f.properties.kind === 'parcel'), M.scrub));
+    layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.curb - Y.road, f => isLand(f) && f.properties.kind === 'strip'), M.paving));
     layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn + .004, f => isInner(f) && f.properties.kind === 'greenbelt'), M.lawn));
     for (const f of land.features) if (isInner(f) && f.properties.kind === 'greenbelt') for (const rings of polysOf(f.geometry)) {
       const r = ringPlan(rings[0]); let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
@@ -297,25 +300,33 @@ export function Society3D(el, opts = {}) {
     const otherMainDist = (l, x, y) => { let d = Infinity; for (const m of mains) if (m !== l) for (let i = 0; i < m.pts.length - 1; i++) d = Math.min(d, segDist(x, y, m.pts[i], m.pts[i + 1])); return d; };
     for (const l of lines) {
       const w = l.p.width_m || 12, cls = l.p.class;
-      if (cls === 'main') {
+      if (cls === 'service') {
+        stripe(l.pts, 0, 3, 6, .12);
+      } else if (cls === 'divider') {
+        stripe(l.pts, .18, 1, 0, .12); stripe(l.pts, -.18, 1, 0, .12);               // double centre line
+        stripe(l.pts, w / 4, 3, 6, .14); stripe(l.pts, -w / 4, 3, 6, .14);           // four lanes
+        stripe(l.pts, w / 2 - .4, 1, 0, .18); stripe(l.pts, -(w / 2 - .4), 1, 0, .18);
+        along(l.pts, 36, 8, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 1.4), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); } });
+        along(l.pts, 18, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 2.8), px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 18) % 3) trees.round.push([px, Y.verge, -py, .85]); } });
+      } else if (cls === 'main') {
         stripe(l.pts, w / 6, 3, 6, .15); stripe(l.pts, -w / 6, 3, 6, .15);
         stripe(l.pts, w / 2 - .45, 1, 0, .2); stripe(l.pts, -(w / 2 - .45), 1, 0, .2);
         along(l.pts, 34, 6, (x, y, ux, uy) => {
           for (const s of [1, -1]) {
             const off = s * (w / 2 + 1.3), px = x - uy * off, py = y + ux * off;
             if (!inB(px, py)) continue;
-            const median = otherMainDist(l, px, py) < w / 2 + 2.2;
+            const median = otherMainDist(l, px, py) < w / 2 + 9;
             lamps.street.push([px, Y.curb, -py, Math.atan2(-(s * ux), s * uy) + PI]);
             if (median) { const tx = x - uy * off + ux * 17, ty = y + ux * off + uy * 17; trees.palm.push([tx, Y.median, -ty, 1.05]); }
           }
         });
       } else if (cls === 'collector' || cls === 'arterial') {
-        stripe(l.pts, 0, 3, 5, .15); stripe(l.pts, w / 2 - .4, 1, 0, .18); stripe(l.pts, -(w / 2 - .4), 1, 0, .18);
-        along(l.pts, 40, 10, (x, y, ux, uy, t) => { const s = Math.round(t / 40) % 2 ? 1 : -1, off = s * (w / 2 + 1.1), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.curb, -py, Math.atan2(-(s * ux), s * uy) + PI]); });
-        along(l.pts, 22, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 1.8), px = x - uy * off, py = y + ux * off; if (inB(px, py) && (Math.round(t / 22) % 2)) trees.round.push([px, Y.curb, -py, .8 + ((t * 7) % 10) / 25]); } });
+        stripe(l.pts, 0, 3, 5, .12);
+        const row = l.p.row_m || 18.3;
+        along(l.pts, 40, 10, (x, y, ux, uy, t) => { const s = Math.round(t / 40) % 2 ? 1 : -1, off = s * (w / 2 + 1.2), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); });
+        along(l.pts, 20, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (row / 2 - 1.5), px = x - uy * off, py = y + ux * off; if (inB(px, py) && (Math.round(t / 20) % 2)) trees.round.push([px, Y.verge, -py, .75 + ((t * 7) % 10) / 30]); } });
       } else if (cls === 'residential') {
-        stripe(l.pts, 0, 2.5, 6, .12);
-        along(l.pts, 46, 12, (x, y, ux, uy, t) => { const s = Math.round(t / 46) % 2 ? 1 : -1, off = s * (w / 2 + .9), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.curb, -py, Math.atan2(-(s * ux), s * uy) + PI]); });
+        along(l.pts, 46, 12, (x, y, ux, uy, t) => { const s = Math.round(t / 46) % 2 ? 1 : -1, off = s * (w / 2 + .8), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); });
       }
     }
     // stripes -> one mesh
@@ -459,8 +470,10 @@ export function Society3D(el, opts = {}) {
     if (f.block && !p.block.endsWith(' ' + f.block)) return false;
     return true;
   }
+  const SOIL = ['#b9a67f', '#b3a079', '#bfab84', '#ac9a74', '#c2b08a', '#a99772'].map(c => new THREE.Color(c));
   function plotColor(p, layer) {
     if (!passes(p)) return DIM.clone();
+    if (layer === 'real') return SOIL[(p.id * 7) % SOIL.length].clone().lerp(new THREE.Color(p.type === 'Commercial' ? '#a99c86' : '#9aa06a'), ((p.id * 13) % 10) / 40);
     if (layer === 'size') return new THREE.Color(COLORS.size[p.size] || '#cccccc');
     if (layer === 'sat') return new THREE.Color(p.built ? COLORS.sat.built : COLORS.sat.vacant);
     const c = new THREE.Color(layer === 'stat' ? (COLORS.stat[p.status] || COLORS.stat.Unknown) : (COLORS.cls[p.dev_class] || COLORS.cls.Low));
@@ -524,14 +537,14 @@ export function Society3D(el, opts = {}) {
   function buildCars(features) {
     const paths = [];
     for (const f of features) {
-      const pr = f.properties; if (!['main', 'collector'].includes(pr.class)) continue;
+      const pr = f.properties; if (!['main', 'divider', 'service', 'collector'].includes(pr.class)) continue;
       const pts = f.geometry.coordinates.map(c => P(c[0], c[1])); let len = 0; const cum = [0];
       for (let i = 1; i < pts.length; i++) { len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); cum.push(len); }
-      if (len > 120) paths.push({ pts, cum, len, w: pr.width_m || 12, main: pr.class === 'main' });
+      if (len > 120) paths.push({ pts, cum, len, w: pr.width_m || 12, main: pr.class === 'main' || pr.class === 'divider' });
     }
     const r = rng(11), cars = [];
     for (const pa of paths) {
-      const n = Math.floor(pa.len / (pa.main ? 45 : 95));
+      const n = Math.floor(pa.len / (pa.main ? 45 : 110));
       for (let i = 0; i < n; i++) {
         const dir = pa.main ? 1 : (r() < .5 ? 1 : -1);
         const lane = pa.main ? [-1, 0, 1][(r() * 3) | 0] * pa.w / 3 : dir * pa.w / 4;

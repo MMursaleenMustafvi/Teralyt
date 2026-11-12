@@ -177,6 +177,10 @@ export function createMaterials() {
     track: T(metres(groundTex('#b05038', ['#9c4430', '#c25e45'], 2000, 9), 3)),
     flowers: T(metres(groundTex('#3f7a33', ['#e84a5f', '#ffd23f', '#f78c2b', '#c86dd7', '#ffffff', '#ff6fa5'], 4000, 10, null), 2)),
     hedge: S('#3d6e31', { roughness: 1 }),
+    // vacant land as on the site today: sandy soil with dry scrub; dusty road verges
+    scrub: T(metres(groundTex('#ae9c79', ['#9c8a68', '#8f8a62', '#7f8456', '#c3b18d', '#a89470', '#6f7a4c'], 7000, 12, (g, w, h) => {
+      const r = rng(31); for (let i = 0; i < 140; i++) { g.globalAlpha = .35; g.fillStyle = r() < .5 ? '#6f7a4c' : '#86825a'; g.beginPath(); g.arc(r() * w, r() * h, 2 + r() * 5, 0, 2 * PI); g.fill(); } g.globalAlpha = 1; }), 9)),
+    verge: T(metres(groundTex('#a8997e', ['#998a70', '#b6a88d', '#8d846a'], 3500, 13, null), 5)),
     // plain colours
     white: S('#f2efe8'), cream: S('#e8dcc4'), sand: S('#d6b88a'), brick: S('#a5533a'), concrete: S('#b8b3aa'), darkConcrete: S('#7b7770'),
     roofGray: S('#8f8b84'), roofDark: S('#55524d'), terracotta: S('#a14b30'), wood: S('#7a5232'), red: S('#c3392b'), blue: S('#2e6fb6'),
