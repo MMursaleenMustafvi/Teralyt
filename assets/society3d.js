@@ -34,7 +34,7 @@ const KIND_LABEL = { highschool: 'High school', postoffice: 'Post office, police
 const KIND_COLOR = { highschool: '#a5533a', postoffice: '#8a3b3b', community: '#8a6d3b', hotel: '#2e6fb6', firestation: '#c3392b', office: '#4a5a8a', shops: '#2e6fb6', dispensary: '#c3392b', homes: '#b5651d', metro: '#0b3a7a', sewerage: '#4a6a7a', nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
 
 export function Society3D(el, opts = {}) {
-  opts = Object.assign({ dataUrl: 'data/', layer: 'cls', onPick: null, onHover: null, onStatus: null }, opts);
+  opts = Object.assign({ dataUrl: 'data/', layer: 'cls', onPick: null, onHover: null, onStatus: null, audit: false }, opts);
   const api = { plots: [], landmarks: [], layer: opts.layer || 'real', time: 'day', ground: 'plan', labels: true, selected: null };
   const status = (s, m) => { if (opts.onStatus) opts.onStatus(s, m); };
   const tick = () => new Promise(r => requestAnimationFrame(() => r()));
@@ -161,10 +161,28 @@ export function Society3D(el, opts = {}) {
   let homeTarget = new THREE.Vector3(), homeDist = 2600, axisRad = 0, boundaryPlan = null, blockCentres = null;
   api.filter = { sizes: null, statuses: null, block: null };
 
+  // ---- model audit (?audit=1): does any part of a model lie outside its site polygon? ----
+  api.modelAudit = [];
+  const MIN_SITE = { mosque: [30, 22], school: [42, 30], highschool: [42, 30], commercial: [30, 18], shops: [30, 18], dispensary: [18, 14], shrine: [16, 14], park: [16, 12],
+    playground: [44, 32], cng: [26, 18], hospital: [70, 50], sports: [60, 40], civic: [50, 34], community: [50, 34], firestation: [34, 26], office: [50, 34], postoffice: [70, 34], graveyard: [16, 12], grid: [30, 20], sewerage: [30, 24] };
+  const GREEN_SITES = new Set(['park', 'playground', 'sports', 'university', 'hospital', 'hotel', 'office', 'community']);
+  const notePoint = (group, x, z) => { if (opts.audit) (group.userData.pts || (group.userData.pts = [])).push([x, z]); };
+  function auditModel(group, poly, p) {
+    let n = 0, out = 0, maxd = 0; const v = new THREE.Vector3();
+    const test = (x, z) => { n++; if (!pipPlan(x, z, poly)) { const d = edgeDistPlan(x, z, poly); if (d > 1.5) { out++; maxd = Math.max(maxd, d); } } };
+    group.traverse(o => {
+      if (!o.isMesh) return; o.updateMatrix();
+      const pa = o.geometry.attributes.position, step = Math.max(1, Math.floor(pa.count / 300));
+      for (let i = 0; i < pa.count; i += step) { v.fromBufferAttribute(pa, i).applyMatrix4(o.matrix); test(v.x, v.z); }
+    });
+    for (const [x, z] of group.userData.pts || []) test(x, z);
+    api.modelAudit.push({ id: p.id, name: p.name, kind: p.kind, checked: n, outside: out, max_m: Math.round(maxd * 10) / 10 });
+  }
+
   const hooks = {
-    tree(group, x, z, type, s) { const v = group.localToWorld(new THREE.Vector3(x, 0, z)); trees[type in trees ? type : 'round'].push([v.x, v.y, v.z, s]); },
-    lamp(group, x, z, ry, type) { const v = group.localToWorld(new THREE.Vector3(x, 0, z)); lamps[type in lamps ? type : 'park'].push([v.x, v.y, v.z, ry + group.rotation.y]); },
-    car(group, x, z, ry, color) { const v = group.localToWorld(new THREE.Vector3(x, 0, z)); staticCars.push([v.x, v.y, v.z, ry + group.rotation.y, color]); },
+    tree(group, x, z, type, s) { notePoint(group, x, z); s *= group.scale.x; const v = group.localToWorld(new THREE.Vector3(x, 0, z)); trees[type in trees ? type : 'round'].push([v.x, v.y, v.z, s]); },
+    lamp(group, x, z, ry, type) { notePoint(group, x, z); const v = group.localToWorld(new THREE.Vector3(x, 0, z)); lamps[type in lamps ? type : 'park'].push([v.x, v.y, v.z, ry + group.rotation.y]); },
+    car(group, x, z, ry, color) { notePoint(group, x, z); const v = group.localToWorld(new THREE.Vector3(x, 0, z)); staticCars.push([v.x, v.y, v.z, ry + group.rotation.y, color]); },
     nightMat(m) { nightSigns.push(m); }
   };
 
@@ -369,22 +387,42 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   function buildOne(f) {
     const p = f.properties, kind = p.kind;
     const group = new THREE.Group();
-    let L, W, local;
+    let L, W, local, sel = null;
     if (f.geometry.type === 'Point') {
       const [e, n] = P(...f.geometry.coordinates);
       group.position.set(e, Y.road, -n); group.rotation.y = (p.heading || 0) * PI / 180;
       L = 10; W = p.span || 30; local = [[-5, -W / 2], [5, -W / 2], [5, W / 2], [-5, W / 2]];
     } else {
-      const o = p.obb, [cx, cn] = P(o.lon, o.lat), a = o.angle * PI / 180, ca = Math.cos(a), sa = Math.sin(a);
-      group.position.set(cx, kind === 'roundabout' ? Y.road : Y.land, -cn); group.rotation.y = a;
+      const o = p.obb, [cx, cn] = P(o.lon, o.lat), ca = Math.cos(o.angle * PI / 180), sa = Math.sin(o.angle * PI / 180);
+      let a = o.angle * PI / 180, gx = cx, gn = cn;
       L = o.length; W = o.width;
       local = ringPlan(f.geometry.coordinates[0]).map(([e, n]) => { const de = e - cx, dn = n - cn; return [de * ca + dn * sa, de * sa - dn * ca]; });
+      sel = { c: new THREE.Vector3(cx, Y.land, -cn), rot: a, L, W };
+      if (kind !== 'roundabout') {
+        // Sites are rarely perfect rectangles (triangular parks, plots cut by a curved road). The model is
+        // laid out in the largest rectangle that fits inside the real site, so nothing spills onto roads or
+        // neighbouring plots; ground and boundary wall still follow the true outline.
+        const r = inscribedRect(local);
+        if (r) {
+          const rx = (r[0] + r[2]) / 2, rz = (r[1] + r[3]) / 2; let rl = r[2] - r[0], rw = r[3] - r[1];
+          gx = cx + rx * ca + rz * sa; gn = cn + rx * sa - rz * ca;
+          local = local.map(([x, z]) => [x - rx, z - rz]);
+          if (rw > rl) { a += PI / 2; local = local.map(([x, z]) => [-z, x]); [rl, rw] = [rw, rl]; }
+          L = rl; W = rw;
+        }
+        // a site smaller than the model's natural size gets the same model at reduced scale
+        const mn = MIN_SITE[kind] || [18, 14], sc = Math.min(1, L / mn[0], W / mn[1]);
+        if (sc < 1) { group.scale.setScalar(sc); L /= sc; W /= sc; local = local.map(([x, z]) => [x / sc, z / sc]); }
+      }
+      group.position.set(gx, kind === 'roundabout' ? Y.road : Y.land, -gn); group.rotation.y = a;
     }
     scene.add(group); group.updateMatrixWorld(true);
     const k = makeKit(group, M, local, hooks);
+    group.userData.poly = local;
     if (kind === 'gate') buildGate(k, W); else buildLandmark(kind, k, L, W, p);
-    if (p.outside && kind !== 'metro') { /* shown on the official plan but outside the society */ }
-    const info = Object.assign({}, p, { _group: group, _top: Math.max(6, k.top), _L: L, _W: W, _center: group.position.clone() });
+    if (sel && GREEN_SITES.has(kind)) k.fillTrees([[-L / 2 - 1, -W / 2 - 1, L / 2 + 1, W / 2 + 1]], 9, p.id * 7 + 1);   // plant what the rectangle leaves over
+    if (opts.audit && sel && kind !== 'roundabout') auditModel(group, local, p);
+    const info = Object.assign({}, p, { _group: sel ? { rotation: { y: sel.rot } } : group, _top: Math.max(4, k.top * group.scale.y), _L: sel ? sel.L : L, _W: sel ? sel.W : W, _center: sel ? sel.c : group.position.clone() });
     lmById.set(p.id, info); api.landmarks.push(info); lmGroups.push(group);
     group.userData.lm = p.id;
   }
@@ -1001,6 +1039,34 @@ function pipPlan(x, y, poly) {
   let ins = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) ins = !ins; }
   return ins;
+}
+// Largest axis-aligned rectangle inside a polygon (points [x, z]); returns [x0, z0, x1, z1] or null.
+function inscribedRect(poly, n = 60, margin = 1.0) {
+  let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
+  for (const [x, z] of poly) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); minz = Math.min(minz, z); maxz = Math.max(maxz, z); }
+  const cs = Math.max(maxx - minx, maxz - minz) / n; if (!(cs > 0)) return null;
+  const cols = Math.ceil((maxx - minx) / cs), rows = Math.ceil((maxz - minz) / cs), h = new Int32Array(cols);
+  let best = null, bestA = 0, deep = [0, 0, 0];
+  for (let r = 0; r < rows; r++) {
+    const z = minz + (r + .5) * cs;
+    for (let c = 0; c < cols; c++) {
+      const x = minx + (c + .5) * cs, d = pipPlan(x, z, poly) ? edgeDistPlan(x, z, poly) : 0;
+      if (d > deep[0]) deep = [d, x, z];
+      h[c] = d > cs * .75 + margin ? h[c] + 1 : 0;
+    }
+    const st = [];                                        // largest rectangle in the histogram h
+    for (let c = 0; c <= cols; c++) {
+      const cur = c < cols ? h[c] : 0;
+      while (st.length && h[st[st.length - 1]] >= cur) {
+        const top = st.pop(), left = st.length ? st[st.length - 1] + 1 : 0, wd = c - left, ht = h[top], A = wd * ht * Math.min(1, 2.2 * Math.min(wd, ht) / Math.max(wd, ht) + .25);
+        if (A > bestA) { bestA = A; best = [minx + left * cs, minz + (r - ht + 1) * cs, minx + c * cs, minz + (r + 1) * cs]; }
+      }
+      st.push(c);
+    }
+  }
+  if (best && best[2] - best[0] > 2.5 && best[3] - best[1] > 2.5) return best;
+  const q = deep[0] * .68;                  // sliver: fall back to the square around the deepest interior point
+  return q > .6 ? [deep[1] - q, deep[2] - q, deep[1] + q, deep[2] + q] : null;
 }
 function edgeDistPlan(x, y, poly) { let d = Infinity; for (let i = 0; i < poly.length; i++) d = Math.min(d, segDist(x, y, poly[i], poly[(i + 1) % poly.length])); return d; }
 // raised kerb with alternating paint along closed rings (plan coordinates): outer face + top face

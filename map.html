@@ -80,7 +80,7 @@ function blockPanel(b){
 function hover(p,pos){if(!p||!pos){tip.hidden=true;return}tip.hidden=false;tip.textContent=p.landmark?p.name:(p.plot_no+' · '+p.status+' · '+p.dev_class);tip.style.left=pos.x+'px';tip.style.top=pos.y+'px'}
 window.__log=[];addEventListener('error',e=>window.__log.push('error: '+e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno));addEventListener('unhandledrejection',e=>window.__log.push('rejection: '+(e.reason&&e.reason.message||e.reason)));
 
-model=Society3D($('model'),{onPick:pick,onHover:hover,onBlock:blockPanel,onStatus:(s,m)=>{if(view==='model')setStatus(s,m)},layer});
+model=Society3D($('model'),{audit:qs('audit')==='1',onPick:pick,onHover:hover,onBlock:blockPanel,onStatus:(s,m)=>{if(view==='model')setStatus(s,m)},layer});
 window.__map=model;
 model.ready.then(()=>{
   idle();
