@@ -23,20 +23,25 @@ plots = D("plots"); lms = D("landmarks"); surf = D("road_surface"); water = D("w
 PG = [tom(shape(f["geometry"])) for f in plots]
 PP = [f["properties"] for f in plots]
 LG = [(f["properties"], tom(shape(f["geometry"]))) for f in lms if f["geometry"]["type"] == "Polygon"]
-carr = unary_union([tom(shape(f["geometry"])) for f in surf if f["properties"]["kind"] == "carriageway"])
-row = unary_union([tom(shape(f["geometry"])) for f in surf])
-nala = unary_union([tom(shape(f["geometry"])) for f in water if f["properties"]["kind"] in ("nala_water", "nala_wall", "nala_bank")])
+carr_parts = [tom(shape(f["geometry"])) for f in surf if f["properties"]["kind"] == "carriageway"]
+row_parts = [tom(shape(f["geometry"])) for f in surf]
+nala_parts = [tom(shape(f["geometry"])) for f in water if f["properties"]["kind"] in ("nala_water", "nala_wall", "nala_bank")]
+carr, row, nala = unary_union(carr_parts), unary_union(row_parts), unary_union(nala_parts)
+row_tree = STRtree(row_parts)
 B = tom(shape(bnd[0]["geometry"]))
 tree = STRtree(PG)
 print("- invalid polygons repaired for the audit:", dict(INVALID))
 print(f"plots {len(PG)}, landmarks {len(LG)}, boundary {B.area/1e6:.2f} km2, carriageway {carr.area/1e4:.1f} ha, right-of-way {row.area/1e4:.1f} ha")
 
-def over(name, geom, thresh=1.0):
-    idx = tree.query(geom)
-    bad = [(i, PG[i].intersection(geom).area) for i in idx]
-    bad = [(i, a) for i, a in bad if a > thresh]
+def over(name, parts, thresh=1.0):
+    tot = {}
+    for g in parts:                       # piece by piece: one huge union makes every intersection slow
+        for i in tree.query(g, predicate="intersects"):
+            a = PG[i].intersection(g).area
+            if a > 0: tot[i] = tot.get(i, 0) + a
+    bad = [(i, a) for i, a in tot.items() if a > thresh]
     print(f"- plots overlapping {name}: {len(bad)} (total {sum(a for _, a in bad):.0f} m2)", [PP[i]['plot_no'] for i, _ in sorted(bad, key=lambda t: -t[1])[:6]])
-over("carriageway", carr); over("road right-of-way", row); over("nalla", nala)
+over("carriageway", carr_parts); over("road right-of-way", row_parts); over("nalla", nala_parts)
 n = 0; ex = []
 for pr, g in LG:
     if pr.get("outside"): continue
@@ -65,13 +70,13 @@ for g, p in zip(PG, PP):
 print("- plot area vs official size:", dict(dev))
 print(f"- non-rectangular plots (fill < 80% of bounding box): {len(odd)}", odd[:8])
 # plots not fronting any road (distance to right-of-way > 3 m)
-far = [PP[i]["plot_no"] for i, g in enumerate(PG) if g.distance(row) > 3.0]
+far = [PP[i]["plot_no"] for i, g in enumerate(PG) if len(row_tree.query(g.buffer(3.0), predicate="intersects")) == 0]
 print(f"- plots with no road frontage (> 3 m from any road): {len(far)} ({100*len(far)/len(PG):.1f}%)", far[:6])
 # landmarks
 names = Counter(pr["name"] for pr, _ in LG)
 print("- duplicate landmark names:", {k: v for k, v in names.items() if v > 1})
 for (p1, g1) in LG:
-    if g1.intersection(carr).area > 5 and p1["kind"] != "roundabout": print(f"- landmark on carriageway: {p1['name']} {g1.intersection(carr).area:.0f} m2")
+    if p1["kind"] != "roundabout" and sum(g1.intersection(row_parts[i]).area for i in row_tree.query(g1, predicate="intersects") if surf[i]["properties"]["kind"] == "carriageway") > 5: print(f"- landmark on carriageway: {p1['name']}")
 lo = []
 for i, (p1, g1) in enumerate(LG):
     for p2, g2 in LG[i + 1:]:

@@ -653,15 +653,7 @@ B.cinema = (k, L, W) => {
   for (let x = -L / 2 + 4; x < L / 2; x += 12) k.lamp(x, W / 2 - 1.2, PI, 'street');
 };
 
-B.multipurpose = (k, L, W, lm) => {
-  const M = k.M, r = rng(lm.id);
-  k.ground(M.paving, .03);
-  k.box(L * .7, 8, W * .4, M.facShop ? M.cream : M.cream, -L * .1, 0, -W * .2);
-  k.fbox(L * .7, 8, W * .4, M.facShop, -L * .1, 0, -W * .2);
-  for (let i = 0; i < 3; i++) { const fl = 8 + ((r() * 6) | 0); k.building(14, 14, fl, i % 2 ? M.facGlass : M.facWhite, -L * .35 + i * L * .3, -W * .2, 0, { y: 8, tanks: false }); }
-  for (let x = -L / 2 + 4; x < L / 2; x += 8) k.tree(x, W / 2 - 3, 'palm', 1);
-  k.sign('MULTI-PURPOSE ZONE', 12, 1.6, -L * .1, 5.5, W * 0 + .1, 0, { bg: '#2d3b6b' });
-};
+B.multipurpose = (k, L, W, lm) => reserved(k, L, W, lm, 'MULTI-PURPOSE USES');
 
 B.grid = (k, L, W) => {
   const M = k.M;
@@ -768,32 +760,7 @@ B.dispensary = (k, L, W) => {
   k.sign('DISPENSARY', Math.min(bw - 1, 9), 1.1, 0, 3.8, bd / 2 + .15, 0, { bg: '#ffffff', fg: '#1d6b3c', border: '#1d6b3c' });
 };
 
-B.homes = (k, L, W, lm) => {
-  // FDA City Homes: a gated scheme of identical double-storey houses on a street grid
-  const M = k.M, r = rng(lm.id * 13);
-  k.ground(M.lawn, .03);
-  k.wall(2.2, .35, M.cream, 14, M.sand);
-  const hw = 9.5, hd = 17, street = 9, rowD = hd * 2 + street;
-  const facs = [M.facCream, M.facPink, M.facSand, M.facCream];
-  const roofs = [M.terracotta, M.roofGray, M.roofDark];
-  let n = 0;
-  for (let z = -W / 2 + 8; z + hd * 2 < W / 2 - 6; z += rowD) {
-    k.plane(L - 10, street, M.asphalt, 0, .05, z + hd * 2 + street / 2, 0, { metres: true });
-    for (let x = -L / 2 + 7; x + hw < L / 2 - 6; x += hw + .6) {
-      for (const [zz, ry] of [[z + hd / 2, PI], [z + hd * 1.5, 0]]) {
-        if (!k.inside(x + hw / 2, zz, 3)) continue;
-        if (n++ > 1500) break;
-        const f = facs[(r() * facs.length) | 0];
-        k.fbox(hw - .8, 6.8, 11, f, x + hw / 2, 0, zz + (ry ? -2.5 : 2.5));
-        const roof = new THREE.ConeGeometry(Math.hypot(hw - .8, 11) / 2 * 1.05, 2.4, 4, 1).rotateY(PI / 4).scale((hw - .8) / 11, 1, 1);
-        k.geo(roof, roofs[(r() * roofs.length) | 0], x + hw / 2, 6.8, zz + (ry ? -2.5 : 2.5));
-        k.box(hw - .8, 1.2, .2, M.cream, x + hw / 2, 0, zz + (ry ? 5.6 : -5.6));
-        if (r() < .5) k.tree(x + hw / 2 + 2.5, zz + (ry ? 4 : -4), 'round', .55);
-      }
-    }
-  }
-  if (k.gate) k.sign('FDA CITY HOMES', 10, 1.6, k.gate.x + k.gate.nx * .4, 2.6, k.gate.z + k.gate.nz * .4, k.gate.ry, { bg: '#1f5a38', border: '#d6a840' });
-};
+B.homes = (k, L, W, lm) => reserved(k, L, W, lm, 'AREA FOR FDA CITY HOMES');
 
 B.metro = (k, L, W) => {
   const M = k.M;
@@ -904,6 +871,18 @@ B.office = (k, L, W, lm) => {
 };
 
 B.shops = (k, L, W, lm) => B.commercial(k, L, W, lm);
+
+// Land the official map only labels as reserved (no layout drawn on it): open ground with a boundary
+// wall and a signboard, not invented buildings.
+function reserved(k, L, W, lm, title) {
+  const M = k.M;
+  k.ground(M.plotground, .03);
+  k.wall(1.2, .3, M.cream, 14, M.sand);
+  const bw = Math.min(26, L * .5), post = 9;
+  for (const x of [-bw / 2 + .6, bw / 2 - .6]) k.box(.5, post, .5, M.darkSteel, x, 0, 0);
+  for (const ry of [0, PI]) k.sign(title, bw, 4.2, 0, post - 4.6, ry ? -.2 : .2, ry, { bg: '#1f5a38', border: '#d6a840' });
+  if (k.gate) k.sign(title, Math.min(12, bw), 1.5, k.gate.x + k.gate.nx * .4, 2.4, k.gate.z + k.gate.nz * .4, k.gate.ry, { bg: '#1f5a38', border: '#d6a840' });
+}
 
 export function buildLandmark(kind, k, L, W, lm) {
   const f = B[kind];

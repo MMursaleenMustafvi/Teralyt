@@ -196,140 +196,6 @@
  },
  "zones": [
   {
-   "kind": "multipurpose",
-   "name": "Multi-Purpose Uses",
-   "block": "C",
-   "px": [
-    [
-     1475,
-     22
-    ],
-    [
-     1580,
-     22
-    ],
-    [
-     1580,
-     265
-    ],
-    [
-     1475,
-     265
-    ]
-   ]
-  },
-  {
-   "kind": "university",
-   "name": "Proposed University",
-   "block": "C",
-   "proposed": true,
-   "px": [
-    [
-     1475,
-     280
-    ],
-    [
-     1580,
-     280
-    ],
-    [
-     1580,
-     332
-    ],
-    [
-     1475,
-     332
-    ]
-   ]
-  },
-  {
-   "kind": "stadium",
-   "name": "Proposed Cricket Stadium",
-   "block": "C",
-   "proposed": true,
-   "px": [
-    [
-     1475,
-     337
-    ],
-    [
-     1580,
-     337
-    ],
-    [
-     1580,
-     404
-    ],
-    [
-     1475,
-     404
-    ]
-   ]
-  },
-  {
-   "kind": "cinema",
-   "name": "Proposed IMAX Theatre",
-   "block": "C",
-   "proposed": true,
-   "px": [
-    [
-     1475,
-     408
-    ],
-    [
-     1580,
-     408
-    ],
-    [
-     1580,
-     474
-    ],
-    [
-     1475,
-     474
-    ]
-   ]
-  },
-  {
-   "kind": "homes",
-   "name": "Area for FDA City Homes",
-   "block": "E",
-   "px": [
-    [
-     960,
-     930
-    ],
-    [
-     1050,
-     930
-    ],
-    [
-     1050,
-     925
-    ],
-    [
-     1146,
-     925
-    ],
-    [
-     1146,
-     932
-    ],
-    [
-     1215,
-     932
-    ],
-    [
-     1215,
-     1092
-    ],
-    [
-     960,
-     1096
-    ]
-   ]
-  },
-  {
    "kind": "grid",
    "name": "Grid Station",
    "block": "F",
@@ -647,61 +513,609 @@
     225,
     1060
    ]
-  }
- ],
- "complexes": [
+  },
   {
+   "kind": "mosque",
+   "name": "Mosque (B north)",
    "block": "B",
-   "px": [
-    1032,
-    251,
-    1102,
-    311
+   "sheet": "B",
+   "rect": [
+    672.0,
+    287.8,
+    718.3,
+    329.3
    ],
-   "parts": "standard_dispensary"
+   "kanal": 1.85
   },
   {
+   "kind": "mosque",
+   "name": "Jamia Mosque (B)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    440,
+    828,
+    516,
+    903
+   ],
+   "kanal": 5.0
+  },
+  {
+   "kind": "school",
+   "name": "Govt. Primary School (B)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    403,
+    907,
+    516,
+    1065
+   ],
+   "kanal": 13.9
+  },
+  {
+   "kind": "playground",
+   "name": "Playground B-1",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    517,
+    828,
+    675,
+    1004
+   ],
+   "kanal": 25.5
+  },
+  {
+   "kind": "dispensary",
+   "name": "Dispensary (B)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    517,
+    1007,
+    543,
+    1065
+   ],
+   "kanal": 1.5
+  },
+  {
+   "kind": "commercial",
+   "name": "Commercial Centre (B)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    546,
+    1007,
+    675,
+    1065
+   ],
+   "kanal": 6.54
+  },
+  {
+   "kind": "multipurpose",
+   "name": "Multi-Purpose Uses",
    "block": "C",
-   "px": [
-    1307,
-    266,
-    1365,
-    318
-   ],
-   "parts": "standard"
+   "sheet": "C",
+   "rect": [
+    818.7,
+    98.4,
+    1129.5,
+    803.1
+   ]
   },
   {
+   "kind": "university",
+   "name": "Proposed University",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    818,
+    858,
+    1133,
+    981
+   ],
+   "proposed": true
+  },
+  {
+   "kind": "stadium",
+   "name": "Proposed Cricket Stadium",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    817,
+    993,
+    1134,
+    1227
+   ],
+   "proposed": true
+  },
+  {
+   "kind": "cinema",
+   "name": "Proposed IMAX Theatre",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    818,
+    1241,
+    1134,
+    1463
+   ],
+   "proposed": true
+  },
+  {
+   "kind": "mosque",
+   "name": "Jamia Mosque (C)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    333,
+    824,
+    378,
+    872
+   ]
+  },
+  {
+   "kind": "school",
+   "name": "Govt. Primary School (C)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    333,
+    874,
+    378,
+    975
+   ],
+   "kanal": 7.5
+  },
+  {
+   "kind": "playground",
+   "name": "Playground C-5",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    383,
+    824,
+    484,
+    938
+   ],
+   "kanal": 18.3
+  },
+  {
+   "kind": "dispensary",
+   "name": "Dispensary (C)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    383,
+    944,
+    405,
+    975
+   ]
+  },
+  {
+   "kind": "commercial",
+   "name": "Commercial Centre (C)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    407,
+    944,
+    484,
+    975
+   ],
+   "kanal": 3.9
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (Park C-4)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    455,
+    322,
+    490,
+    351
+   ]
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Park C-4)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    455,
+    353,
+    490,
+    384
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (Park C-1)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    314,
+    1163,
+    365,
+    1209
+   ]
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Park C-1)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    371,
+    1163,
+    413,
+    1209
+   ]
+  },
+  {
+   "kind": "shrine",
+   "name": "Mazar (Park C-1)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    415,
+    1163,
+    459,
+    1209
+   ]
+  },
+  {
+   "kind": "cng",
+   "name": "CNG Pump",
    "block": "D",
-   "px": [
-    1313,
-    634,
-    1373,
-    691
-   ],
-   "parts": "standard"
+   "sheet": "D",
+   "rect": [
+    1245.0,
+    220.3,
+    1288.1,
+    255.8
+   ]
   },
   {
-   "block": "E",
-   "px": [
-    1057,
-    627,
-    1116,
-    688
+   "kind": "mosque",
+   "name": "Jamia Mosque (D)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    384,
+    659,
+    455,
+    731
    ],
-   "parts": "standard"
+   "kanal": 5.3
   },
   {
-   "block": "E",
-   "px": [
-    1051,
-    927,
-    1145,
-    995
+   "kind": "school",
+   "name": "Govt. Primary School (D)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    384,
+    734,
+    455,
+    883
    ],
-   "parts": "homes_centre",
-   "name": "FDA City Homes Centre"
+   "kanal": 10.3
+  },
+  {
+   "kind": "playground",
+   "name": "Playground D",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    459,
+    659,
+    608,
+    828
+   ],
+   "kanal": 24.9
+  },
+  {
+   "kind": "dispensary",
+   "name": "Dispensary (D)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    459,
+    835,
+    480,
+    883
+   ]
+  },
+  {
+   "kind": "commercial",
+   "name": "Commercial Centre (D)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    483,
+    835,
+    608,
+    883
+   ],
+   "kanal": 6.5
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (Park D-5)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    192,
+    1361,
+    236,
+    1401
+   ]
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Park D-5)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    239,
+    1361,
+    282,
+    1401
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (Park D-6)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    542,
+    1648,
+    601,
+    1696
+   ]
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Park D-6)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    542,
+    1699,
+    601,
+    1746
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Jamia Mosque (E)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    489,
+    632,
+    560,
+    708
+   ],
+   "kanal": 5.3
+  },
+  {
+   "kind": "school",
+   "name": "Govt. Primary School (E)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    489,
+    711,
+    560,
+    864
+   ],
+   "kanal": 10.9
+  },
+  {
+   "kind": "playground",
+   "name": "Playground E-2",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    565,
+    632,
+    718,
+    806
+   ],
+   "kanal": 24.9
+  },
+  {
+   "kind": "dispensary",
+   "name": "Dispensary (E)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    565,
+    811,
+    592,
+    864
+   ]
+  },
+  {
+   "kind": "commercial",
+   "name": "Commercial Centre (E)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    597,
+    811,
+    718,
+    864
+   ],
+   "kanal": 6.5
+  },
+  {
+   "kind": "commercial",
+   "name": "Commercial Centre (FDA City Homes)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    472,
+    1772,
+    549,
+    1907
+   ]
+  },
+  {
+   "kind": "school",
+   "name": "Primary School (FDA City Homes)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    472,
+    1911,
+    549,
+    2036
+   ]
+  },
+  {
+   "kind": "playground",
+   "name": "Playground E-6",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    553,
+    1772,
+    705,
+    1960
+   ]
+  },
+  {
+   "kind": "civic",
+   "name": "Public Building",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    553,
+    1964,
+    705,
+    2036
+   ]
+  },
+  {
+   "kind": "sports",
+   "name": "Sports Complex",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    730,
+    1772,
+    843,
+    1932
+   ]
+  },
+  {
+   "kind": "hospital",
+   "name": "FDA City Hospital",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    730,
+    1936,
+    843,
+    2036
+   ]
+  },
+  {
+   "kind": "mosque",
+   "name": "Mosque (Park E-5)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    218,
+    1394,
+    253,
+    1428
+   ]
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Park E-5)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    256,
+    1394,
+    290,
+    1428
+   ]
+  },
+  {
+   "kind": "shops",
+   "name": "Shops (Park E-6)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    621,
+    1705,
+    656,
+    1748
+   ]
+  },
+  {
+   "kind": "shrine",
+   "name": "Darbar (E)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    1065.7,
+    691.9,
+    1124.6,
+    722.2
+   ]
+  },
+  {
+   "kind": "homes",
+   "name": "Area for FDA City Homes",
+   "block": "E",
+   "sheet": "E",
+   "px": [
+    [
+     131.3,
+     1767.7
+    ],
+    [
+     454.5,
+     1767.7
+    ],
+    [
+     454.5,
+     2040.4
+    ],
+    [
+     841.8,
+     2040.4
+    ],
+    [
+     841.8,
+     1767.7
+    ],
+    [
+     1094.3,
+     1767.7
+    ],
+    [
+     1094.3,
+     2390.6
+    ],
+    [
+     131.3,
+     2399.0
+    ]
+   ]
   }
  ],
+ "complexes": [],
  "complex_parts": {
   "standard": [
    {
@@ -863,321 +1277,6 @@
  "parks": [
   {
    "px": [
-    1264,
-    69,
-    1294,
-    83
-   ],
-   "block": "C",
-   "name": "Park C-3 (north)"
-  },
-  {
-   "px": [
-    1150,
-    75,
-    1168,
-    98
-   ],
-   "block": "B",
-   "kanal": 4.51,
-   "name": "Park (Block B, 4.51 kanal)"
-  },
-  {
-   "px": [
-    1364,
-    103,
-    1388,
-    125
-   ],
-   "block": "C",
-   "name": "Park C-3"
-  },
-  {
-   "px": [
-    1078,
-    114,
-    1094,
-    123
-   ],
-   "block": "B",
-   "name": "Park B-3 (nalla)"
-  },
-  {
-   "px": [
-    1001,
-    170,
-    1010,
-    193
-   ],
-   "block": "B",
-   "name": "Park B-2",
-   "kanal": 1.75
-  },
-  {
-   "px": [
-    1055,
-    188,
-    1080,
-    205
-   ],
-   "block": "B",
-   "name": "Park B-3",
-   "kanal": 3.6
-  },
-  {
-   "px": [
-    1274,
-    191,
-    1289,
-    209
-   ],
-   "block": "C",
-   "name": "Park C-2"
-  },
-  {
-   "px": [
-    1335,
-    191,
-    1351,
-    204
-   ],
-   "block": "C",
-   "name": "Park C-4"
-  },
-  {
-   "px": [
-    1420,
-    235,
-    1448,
-    262
-   ],
-   "block": "C",
-   "name": "Park C-4"
-  },
-  {
-   "px": [
-    1161,
-    307,
-    1194,
-    345
-   ],
-   "block": "B",
-   "name": "Park B-4",
-   "kanal": 16.18
-  },
-  {
-   "px": [
-    1390,
-    326,
-    1418,
-    345
-   ],
-   "block": "C",
-   "name": "Park C-6"
-  },
-  {
-   "px": [
-    996,
-    406,
-    1048,
-    426
-   ],
-   "block": "B",
-   "name": "Park B-1",
-   "kanal": 16.55
-  },
-  {
-   "px": [
-    1110,
-    549,
-    1141,
-    574
-   ],
-   "block": "E",
-   "name": "Park E-2"
-  },
-  {
-   "px": [
-    1366,
-    549,
-    1389,
-    597
-   ],
-   "block": "D",
-   "name": "Park D-2"
-  },
-  {
-   "px": [
-    1002,
-    604,
-    1022,
-    628
-   ],
-   "block": "E",
-   "name": "Park E-1"
-  },
-  {
-   "px": [
-    1257,
-    606,
-    1281,
-    638
-   ],
-   "block": "D",
-   "name": "Park D-1"
-  },
-  {
-   "px": [
-    1164,
-    675,
-    1180,
-    693
-   ],
-   "block": "E",
-   "name": "Park E-3"
-  },
-  {
-   "px": [
-    1400,
-    722,
-    1434,
-    744
-   ],
-   "block": "D",
-   "name": "Park D-3"
-  },
-  {
-   "px": [
-    862,
-    741,
-    888,
-    758
-   ],
-   "block": "F",
-   "name": "Park F-4"
-  },
-  {
-   "px": [
-    1289,
-    760,
-    1312,
-    783
-   ],
-   "block": "D",
-   "name": "Park D-4"
-  },
-  {
-   "px": [
-    1017,
-    761,
-    1055,
-    783
-   ],
-   "block": "E",
-   "name": "Park E-4"
-  },
-  {
-   "px": [
-    1145,
-    762,
-    1165,
-    782
-   ],
-   "block": "E",
-   "name": "Park E-3"
-  },
-  {
-   "px": [
-    1260,
-    830,
-    1285,
-    858
-   ],
-   "block": "D",
-   "name": "Park D-5"
-  },
-  {
-   "px": [
-    985,
-    831,
-    1004,
-    856
-   ],
-   "block": "E",
-   "name": "Park E-5"
-  },
-  {
-   "px": [
-    1096,
-    845,
-    1113,
-    858
-   ],
-   "block": "E",
-   "name": "Park E-5"
-  },
-  {
-   "px": [
-    880,
-    849,
-    901,
-    868
-   ],
-   "block": "F",
-   "name": "Park F-5"
-  },
-  {
-   "px": [
-    1083,
-    910,
-    1097,
-    920
-   ],
-   "block": "E",
-   "name": "Park E-6"
-  },
-  {
-   "px": [
-    878,
-    911,
-    901,
-    938
-   ],
-   "block": "F",
-   "name": "Park F-6"
-  },
-  {
-   "px": [
-    1330,
-    911,
-    1374,
-    937
-   ],
-   "block": "D",
-   "name": "Park D-6"
-  },
-  {
-   "px": [
-    1255,
-    980,
-    1280,
-    1019
-   ],
-   "block": "D",
-   "name": "Park D-7"
-  },
-  {
-   "px": [
-    879,
-    1053,
-    901,
-    1072
-   ],
-   "block": "F",
-   "name": "Park F-6 (south)"
-  },
-  {
-   "px": [
     208,
     665,
     224,
@@ -1185,27 +1284,6 @@
    ],
    "block": "F",
    "name": "Park F-1"
-  },
-  {
-   "px": [
-    1308,
-    394,
-    1357,
-    427
-   ],
-   "block": "C",
-   "name": "Park C-1"
-  },
-  {
-   "px": [
-    878,
-    636,
-    898,
-    656
-   ],
-   "block": "F",
-   "name": "Park F-3",
-   "kanal": 1.82
   },
   {
    "name": "Park A-1",
@@ -1325,64 +1403,447 @@
     1160,
     1206
    ]
+  },
+  {
+   "name": "Park (4.51 kanal)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    858,
+    117,
+    937,
+    227
+   ],
+   "kanal": 4.51
+  },
+  {
+   "name": "Park B-2 (north)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    341,
+    299,
+    384,
+    358
+   ],
+   "kanal": 1.76
+  },
+  {
+   "name": "Park (2 kanal)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    539,
+    288,
+    659,
+    326
+   ],
+   "kanal": 2.0
+  },
+  {
+   "name": "Park B-3 (north)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    722.0,
+    290.2,
+    856.1,
+    329.3
+   ],
+   "kanal": 3.75
+  },
+  {
+   "name": "Park B-2",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    278,
+    511,
+    320,
+    595
+   ],
+   "kanal": 2.95
+  },
+  {
+   "name": "Park B-3 (west)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    485,
+    582,
+    586,
+    649
+   ]
+  },
+  {
+   "name": "Park B-3 (east)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    837,
+    663,
+    901,
+    728
+   ],
+   "kanal": 3.6
+  },
+  {
+   "name": "Park B-4",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    906,
+    1047,
+    1033,
+    1189
+   ],
+   "kanal": 16.18
+  },
+  {
+   "name": "Park B-1",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    253,
+    1431,
+    482,
+    1512
+   ],
+   "kanal": 16.55
+  },
+  {
+   "name": "Park (Block B, nalla side)",
+   "block": "B",
+   "sheet": "B",
+   "rect": [
+    77,
+    1414,
+    124,
+    1493
+   ]
+  },
+  {
+   "name": "Park C-4 (north)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    491,
+    317,
+    553,
+    385
+   ]
+  },
+  {
+   "name": "Park C-1",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    314,
+    1213,
+    461,
+    1295
+   ]
+  },
+  {
+   "name": "Park C-3",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    179,
+    211,
+    268,
+    245
+   ]
+  },
+  {
+   "name": "Park (Block C west)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    196,
+    412,
+    266,
+    439
+   ]
+  },
+  {
+   "name": "Park C-5",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    393,
+    575,
+    441,
+    626
+   ]
+  },
+  {
+   "name": "Park C-2",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    212,
+    579,
+    255,
+    667
+   ]
+  },
+  {
+   "name": "Park C-4 (south)",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    650,
+    717,
+    738,
+    806
+   ]
+  },
+  {
+   "name": "Park C-6",
+   "block": "C",
+   "sheet": "C",
+   "rect": [
+    560,
+    995,
+    647,
+    1048
+   ]
+  },
+  {
+   "name": "Park D-5 (west)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    192,
+    1405,
+    282,
+    1463
+   ]
+  },
+  {
+   "name": "Park D-6",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    441,
+    1648,
+    538,
+    1746
+   ]
+  },
+  {
+   "name": "Park D-2",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    565,
+    366,
+    652,
+    540
+   ]
+  },
+  {
+   "name": "Park D-1",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    181.8,
+    562.4,
+    255.8,
+    673.3
+   ]
+  },
+  {
+   "name": "Park D-3",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    685,
+    950,
+    792,
+    1047
+   ]
+  },
+  {
+   "name": "Park D-4",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    296,
+    1113,
+    378,
+    1194
+   ]
+  },
+  {
+   "name": "Park D-5 (east)",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    725,
+    1417,
+    815,
+    1466
+   ]
+  },
+  {
+   "name": "Park D-7",
+   "block": "D",
+   "sheet": "D",
+   "rect": [
+    177,
+    1894,
+    263,
+    2036
+   ]
+  },
+  {
+   "name": "Park E-5 (west)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    218,
+    1432,
+    290,
+    1503
+   ]
+  },
+  {
+   "name": "Park E-6",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    547,
+    1705,
+    619,
+    1748
+   ]
+  },
+  {
+   "name": "Park E-2",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    694,
+    307,
+    821,
+    362
+   ]
+  },
+  {
+   "name": "Park E-1",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    285,
+    521,
+    361,
+    618
+   ]
+  },
+  {
+   "name": "Park E-3 (north)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    897,
+    794,
+    970,
+    876
+   ]
+  },
+  {
+   "name": "Park E-4",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    338,
+    1126,
+    493,
+    1218
+   ]
+  },
+  {
+   "name": "Park E-3 (south)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    897,
+    1129,
+    969,
+    1211
+   ]
+  },
+  {
+   "name": "Park E-5 (east)",
+   "block": "E",
+   "sheet": "E",
+   "rect": [
+    608,
+    1454,
+    716,
+    1507
+   ]
+  },
+  {
+   "name": "Park F-3",
+   "block": "F",
+   "sheet": "F",
+   "rect": [
+    1113,
+    209,
+    1144,
+    236
+   ],
+   "kanal": 1.82
+  },
+  {
+   "name": "Park F-4",
+   "block": "F",
+   "sheet": "F",
+   "rect": [
+    1077,
+    354,
+    1111,
+    390
+   ]
+  },
+  {
+   "name": "Park F-5",
+   "block": "F",
+   "sheet": "F",
+   "rect": [
+    1100,
+    498,
+    1128,
+    520
+   ]
+  },
+  {
+   "name": "Park F-6",
+   "block": "F",
+   "sheet": "F",
+   "rect": [
+    1098,
+    578,
+    1128,
+    612
+   ]
+  },
+  {
+   "name": "Park F-6 (south)",
+   "block": "F",
+   "sheet": "F",
+   "rect": [
+    1099,
+    764,
+    1128,
+    787
+   ]
   }
  ],
  "facilities": [
-  {
-   "kind": "mosque",
-   "name": "Mosque (B, nalla park)",
-   "block": "B",
-   "px": [
-    1095,
-    113,
-    1104,
-    123
-   ]
-  },
-  {
-   "kind": "mosque",
-   "name": "Mosque (C-1)",
-   "block": "C",
-   "px": [
-    1310,
-    377,
-    1328,
-    392
-   ]
-  },
-  {
-   "kind": "mosque",
-   "name": "Mosque (E-5)",
-   "block": "E",
-   "px": [
-    985,
-    822,
-    996,
-    831
-   ]
-  },
-  {
-   "kind": "mosque",
-   "name": "Mosque (D-5)",
-   "block": "D",
-   "px": [
-    1260,
-    820,
-    1271,
-    830
-   ]
-  },
-  {
-   "kind": "mosque",
-   "name": "Mosque (D-6)",
-   "block": "D",
-   "px": [
-    1374,
-    911,
-    1385,
-    924
-   ]
-  },
   {
    "kind": "mosque",
    "name": "Mosque (F-1)",
@@ -1414,28 +1875,6 @@
     683,
     606,
     699
-   ]
-  },
-  {
-   "kind": "shrine",
-   "name": "Darbar (E)",
-   "block": "E",
-   "px": [
-    1198,
-    630,
-    1210,
-    642
-   ]
-  },
-  {
-   "kind": "cng",
-   "name": "CNG Pump",
-   "block": "D",
-   "px": [
-    1561,
-    498,
-    1576,
-    512
    ]
   }
  ],
@@ -1530,6 +1969,818 @@
       31.520554
      ],
      "what": "Roundabout between Block A and Block B"
+    }
+   ]
+  },
+  "B": {
+   "about": "Block B map from fdacity.pk, pages stacked top to bottom (1200x1829)",
+   "urls": [
+    "https://fdacity.pk/images/fdacity/fda_b/Fdacity%20Block_B_01.jpg",
+    "https://fdacity.pk/images/fdacity/fda_b/Fdacity%20Block_B_02.jpg",
+    "https://fdacity.pk/images/fdacity/fda_b/Fdacity%20Block_B_03.jpg"
+   ],
+   "control_points": [
+    {
+     "px": [
+      64,
+      1751
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1150,
+      1751
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      367.5,
+      1471.5
+     ],
+     "lonlat": [
+      73.0824124,
+      31.5231564
+     ],
+     "what": "Park B-1 (also on the overall plan)"
+    },
+    {
+     "px": [
+      969.5,
+      1118.0
+     ],
+     "lonlat": [
+      73.0834304,
+      31.5275131
+     ],
+     "what": "Park B-4 (also on the overall plan)"
+    },
+    {
+     "px": [
+      535.5,
+      615.5
+     ],
+     "lonlat": [
+      73.0785026,
+      31.527585
+     ],
+     "what": "Park B-3 (west) (also on the overall plan)"
+    },
+    {
+     "px": [
+      299.0,
+      553.0
+     ],
+     "lonlat": [
+      73.0769884,
+      31.5266787
+     ],
+     "what": "Park B-2 (also on the overall plan)"
+    },
+    {
+     "px": [
+      897.5,
+      172.0
+     ],
+     "lonlat": [
+      73.0778591,
+      31.5310799
+     ],
+     "what": "Park (4.51 kanal) (also on the overall plan)"
+    },
+    {
+     "px": [
+      64,
+      1751
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      64,
+      1751
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      64,
+      1751
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1150,
+      1751
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1150,
+      1751
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1150,
+      1751
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    }
+   ]
+  },
+  "C": {
+   "about": "Block C map from fdacity.pk, pages stacked top to bottom (1200x1554)",
+   "urls": [
+    "https://fdacity.pk/images/fdacity/fda_c/Fdacity%20Block_C_01.jpg",
+    "https://fdacity.pk/images/fdacity/fda_c/Fdacity%20Block_C_02.jpg",
+    "https://fdacity.pk/images/fdacity/fda_c/Fdacity%20Block_C_03.jpg",
+    "https://fdacity.pk/images/fdacity/fda_c/FdacityBlock_C_04.jpg",
+    "https://fdacity.pk/images/fdacity/fda_c/Fdacity%20Block_C_05.jpg"
+   ],
+   "control_points": [
+    {
+     "px": [
+      58,
+      1483
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      223.5,
+      228.0
+     ],
+     "lonlat": [
+      73.0799288,
+      31.5334794
+     ],
+     "what": "Park C-3 (also on the overall plan)"
+    },
+    {
+     "px": [
+      522.0,
+      351.0
+     ],
+     "lonlat": [
+      73.0826144,
+      31.5346601
+     ],
+     "what": "Park C-4 (north) (also on the overall plan)"
+    },
+    {
+     "px": [
+      417.0,
+      600.5
+     ],
+     "lonlat": [
+      73.0838012,
+      31.532684
+     ],
+     "what": "Park C-5 (also on the overall plan)"
+    },
+    {
+     "px": [
+      233.5,
+      623.0
+     ],
+     "lonlat": [
+      73.0826777,
+      31.5315013
+     ],
+     "what": "Park C-2 (also on the overall plan)"
+    },
+    {
+     "px": [
+      694.0,
+      761.5
+     ],
+     "lonlat": [
+      73.0866551,
+      31.533541
+     ],
+     "what": "Park C-4 (south) (also on the overall plan)"
+    },
+    {
+     "px": [
+      603.5,
+      1021.5
+     ],
+     "lonlat": [
+      73.0879756,
+      31.5315636
+     ],
+     "what": "Park C-6 (also on the overall plan)"
+    },
+    {
+     "px": [
+      387.5,
+      1254.0
+     ],
+     "lonlat": [
+      73.0882398,
+      31.5290115
+     ],
+     "what": "Park C-1 (also on the overall plan)"
+    },
+    {
+     "px": [
+      1142,
+      1482
+     ],
+     "lonlat": [
+      73.0946258,
+      31.5323095
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    },
+    {
+     "px": [
+      58,
+      1483
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      58,
+      1483
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      58,
+      1483
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1142,
+      1482
+     ],
+     "lonlat": [
+      73.0946258,
+      31.5323095
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    },
+    {
+     "px": [
+      1142,
+      1482
+     ],
+     "lonlat": [
+      73.0946258,
+      31.5323095
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    },
+    {
+     "px": [
+      1142,
+      1482
+     ],
+     "lonlat": [
+      73.0946258,
+      31.5323095
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    }
+   ]
+  },
+  "D": {
+   "about": "Block D map from fdacity.pk, pages stacked top to bottom (1400x2310)",
+   "urls": [
+    "https://fdacity.pk/images/fdacity/fda_d/Fdacity%20Block_D_01.jpg",
+    "https://fdacity.pk/images/fdacity/fda_d/Fdacity%20Block_D_02.jpg",
+    "https://fdacity.pk/images/fdacity/fda_d/Fda%20cityBlock_D_03.jpg",
+    "https://fdacity.pk/images/fdacity/fda_d/Fdacity%20Block_D_04.jpg",
+    "https://fdacity.pk/images/fdacity/fda_d/Fdacity%20Block_D_05.jpg"
+   ],
+   "control_points": [
+    {
+     "px": [
+      64,
+      147
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      608.5,
+      453.0
+     ],
+     "lonlat": [
+      73.0926414,
+      31.5271939
+     ],
+     "what": "Park D-2 (also on the overall plan)"
+    },
+    {
+     "px": [
+      218.8,
+      617.8
+     ],
+     "lonlat": [
+      73.0916306,
+      31.5243793
+     ],
+     "what": "Park D-1 (also on the overall plan)"
+    },
+    {
+     "px": [
+      738.5,
+      998.5
+     ],
+     "lonlat": [
+      73.0968832,
+      31.5253151
+     ],
+     "what": "Park D-3 (also on the overall plan)"
+    },
+    {
+     "px": [
+      337.0,
+      1153.5
+     ],
+     "lonlat": [
+      73.0954904,
+      31.5225234
+     ],
+     "what": "Park D-4 (also on the overall plan)"
+    },
+    {
+     "px": [
+      237.0,
+      1434.0
+     ],
+     "lonlat": [
+      73.0965333,
+      31.5208198
+     ],
+     "what": "Park D-5 (west) (also on the overall plan)"
+    },
+    {
+     "px": [
+      489.5,
+      1697.0
+     ],
+     "lonlat": [
+      73.0997986,
+      31.5209898
+     ],
+     "what": "Park D-6 (also on the overall plan)"
+    },
+    {
+     "px": [
+      220.0,
+      1965.0
+     ],
+     "lonlat": [
+      73.0998247,
+      31.5181881
+     ],
+     "what": "Park D-7 (also on the overall plan)"
+    },
+    {
+     "px": [
+      1338,
+      148
+     ],
+     "lonlat": [
+      73.0946397,
+      31.532323
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    },
+    {
+     "px": [
+      64,
+      147
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      64,
+      147
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      64,
+      147
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1338,
+      148
+     ],
+     "lonlat": [
+      73.0946397,
+      31.532323
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    },
+    {
+     "px": [
+      1338,
+      148
+     ],
+     "lonlat": [
+      73.0946397,
+      31.532323
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    },
+    {
+     "px": [
+      1338,
+      148
+     ],
+     "lonlat": [
+      73.0946397,
+      31.532323
+     ],
+     "what": "roundabout centre (planned, on the boulevard axis)"
+    }
+   ]
+  },
+  "E": {
+   "about": "Block E map from fdacity.pk, pages stacked top to bottom (1200x2526)",
+   "urls": [
+    "https://fdacity.pk/images/fdacity/fda_e/Fda%20Block_E_01.jpg",
+    "https://fdacity.pk/images/fdacity/fda_e/FDA%20Block_E_02.jpg",
+    "https://fdacity.pk/images/fdacity/fda_e/Fda%20Block_E_03.jpg",
+    "https://fdacity.pk/images/fdacity/fda_e/Fda%20Block_E_04.jpg"
+   ],
+   "control_points": [
+    {
+     "px": [
+      61,
+      71
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1139,
+      71
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      757.5,
+      334.5
+     ],
+     "lonlat": [
+      73.0875642,
+      31.5227026
+     ],
+     "what": "Park E-2 (also on the overall plan)"
+    },
+    {
+     "px": [
+      323.0,
+      569.5
+     ],
+     "lonlat": [
+      73.0865774,
+      31.5197054
+     ],
+     "what": "Park E-1 (also on the overall plan)"
+    },
+    {
+     "px": [
+      933.5,
+      835.0
+     ],
+     "lonlat": [
+      73.0911232,
+      31.521566
+     ],
+     "what": "Park E-3 (north) (also on the overall plan)"
+    },
+    {
+     "px": [
+      415.5,
+      1172.0
+     ],
+     "lonlat": [
+      73.0904352,
+      31.517604
+     ],
+     "what": "Park E-4 (also on the overall plan)"
+    },
+    {
+     "px": [
+      254.0,
+      1467.5
+     ],
+     "lonlat": [
+      73.0911977,
+      31.5156661
+     ],
+     "what": "Park E-5 (west) (also on the overall plan)"
+    },
+    {
+     "px": [
+      662.0,
+      1480.5
+     ],
+     "lonlat": [
+      73.0934789,
+      31.517578
+     ],
+     "what": "Park E-5 (east) (also on the overall plan)"
+    },
+    {
+     "px": [
+      61,
+      71
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      61,
+      71
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      61,
+      71
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1139,
+      71
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1139,
+      71
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1139,
+      71
+     ],
+     "lonlat": [
+      73.087766,
+      31.52568
+     ],
+     "what": "roundabout centre"
+    }
+   ]
+  },
+  "F": {
+   "about": "Block F map from fdacity.pk, pages stacked top to bottom (1200x854)",
+   "urls": [
+    "https://fdacity.pk/images/fdacity/fda_f/Block_F.jpg"
+   ],
+   "control_points": [
+    {
+     "px": [
+      695,
+      213
+     ],
+     "lonlat": [
+      73.078424,
+      31.511277
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1185,
+      22
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1094.0,
+      372.0
+     ],
+     "lonlat": [
+      73.0868613,
+      31.514982
+     ],
+     "what": "Park F-4 (also on the overall plan)"
+    },
+    {
+     "px": [
+      1114.0,
+      509.0
+     ],
+     "lonlat": [
+      73.0895325,
+      31.5134902
+     ],
+     "what": "Park F-5 (also on the overall plan)"
+    },
+    {
+     "px": [
+      1113.0,
+      595.0
+     ],
+     "lonlat": [
+      73.090951,
+      31.512394
+     ],
+     "what": "Park F-6 (also on the overall plan)"
+    },
+    {
+     "px": [
+      1113.5,
+      775.5
+     ],
+     "lonlat": [
+      73.0939666,
+      31.5101502
+     ],
+     "what": "Park F-6 (south) (also on the overall plan)"
+    },
+    {
+     "px": [
+      695,
+      213
+     ],
+     "lonlat": [
+      73.078424,
+      31.511277
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      695,
+      213
+     ],
+     "lonlat": [
+      73.078424,
+      31.511277
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      695,
+      213
+     ],
+     "lonlat": [
+      73.078424,
+      31.511277
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1185,
+      22
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1185,
+      22
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
+    },
+    {
+     "px": [
+      1185,
+      22
+     ],
+     "lonlat": [
+      73.082462,
+      31.520554
+     ],
+     "what": "roundabout centre"
     }
    ]
   }
