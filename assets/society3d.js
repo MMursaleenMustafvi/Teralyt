@@ -6,7 +6,7 @@
 //
 // Reads the same data/*.geojson files as the CesiumJS view (assets/map3d.js):
 // boundary, roads, road_surface, outer_roads, blocks (land parcels + lawns),
-// landmarks and plots. Coordinates are projected to local metres around the
+// landmarks, plots and buildings (houses standing today). Coordinates are projected to local metres around the
 // society centre (x = east, z = -north, y = up).
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
@@ -18,7 +18,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createMaterials, makeKit, buildLandmark, buildGate, rng } from './models3d.js';
+import { createMaterials, makeKit, buildLandmark, buildGate, buildHouse, rng } from './models3d.js';
 
 const PI = Math.PI;
 const LAT_REF = 31.525, KX = 111320 * Math.cos(LAT_REF * PI / 180), KY = 111320;
@@ -79,7 +79,8 @@ export function Society3D(el, opts = {}) {
   sun.castShadow = true;
   sun.shadow.mapSize.set(lowEnd ? 2048 : 4096, lowEnd ? 2048 : 4096);
   sun.shadow.bias = -.0004; sun.shadow.normalBias = .5;
-  const SUN_DIR = new THREE.Vector3(-.5, .74, .45).normalize();
+  const SUN_DAY = new THREE.Vector3(-.5, .74, .45).normalize(), SUN_EVE = new THREE.Vector3(-.86, .2, .28).normalize();
+  const SUN_DIR = SUN_DAY.clone();
   scene.add(hemi, sun, sun.target);
 
   // sky dome + stars
@@ -190,8 +191,8 @@ export function Society3D(el, opts = {}) {
   async function build() {
     status('loading', 'Loading map data…');
     const get = n => fetch(opts.dataUrl + n + '.geojson', { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(n + '.geojson: HTTP ' + r.status); return r.json(); });
-    const optional = ['water', 'context'];
-    const [boundary, roads, surface, outer, land, landmarks, plots, water, context] = await Promise.all(['boundary', 'roads', 'road_surface', 'outer_roads', 'blocks', 'landmarks', 'plots', 'water', 'context'].map(n => get(n).catch(e => { if (optional.includes(n)) return { features: [] }; throw e; })));
+    const optional = ['water', 'context', 'buildings'];
+    const [boundary, roads, surface, outer, land, landmarks, plots, water, context, buildings] = await Promise.all(['boundary', 'roads', 'road_surface', 'outer_roads', 'blocks', 'landmarks', 'plots', 'water', 'context', 'buildings'].map(n => get(n).catch(e => { if (optional.includes(n)) return { features: [] }; throw e; })));
     api._context = context.features;
     const bp = boundary.features[0].properties;
     LON0 = bp.centre_lon; LAT0 = bp.centre_lat;
@@ -210,6 +211,8 @@ export function Society3D(el, opts = {}) {
     layers.stylised.push(addMesh(flatGeom(outer.features, Y.road - .01), M.asphalt));
     layers.stylised.push(addMesh(flatGeom(surface.features, Y.road, f => f.properties.kind !== 'verge'), M.asphalt));
     layers.stylised.push(addMesh(flatGeom(surface.features, Y.verge, f => f.properties.kind === 'verge'), M.verge));
+    // society land that the official block maps leave blank: bare ground with dry scrub, as on site
+    layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn + .003, f => f.properties.layer === 'open'), M.scrub));
     // green open space: every piece of land that is not road, plot or facility
     layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn + .006, f => f.properties.layer === 'green'), M.lawn));
     { const r = rng(404);
@@ -246,6 +249,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
 
     status('loading', 'Placing ' + plots.features.length.toLocaleString() + ' plots…'); await tick();
     buildPlots(plots.features);
+    buildHouses(buildings.features);
     buildInstances();
     buildCars(roads.features);
     buildLabels();
@@ -353,8 +357,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         along(l.pts, 34, 6, (x, y, ux, uy) => {
           for (const s of [1, -1]) {
             const off = s * (w / 2 + 1.3), px = x - uy * off, py = y + ux * off;
-            if (!inB(px, py)) continue;
-            const median = otherMainDist(l, px, py) < w / 2 + 9;
+            const median = otherMainDist(l, px, py) < w / 2 + 9;      // (the entrance road has lamps outside the boundary too)
             lamps.street.push([px, Y.curb, -py, Math.atan2(-(s * ux), s * uy) + PI]);
             if (median) { const tx = x - uy * off + ux * 17, ty = y + ux * off + uy * 17; trees.palm.push([tx, Y.median, -ty, 1.05]); }
           }
@@ -534,7 +537,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   const SOIL = ['#cdbb93', '#c9b78f', '#d1c098', '#c5b38b', '#cfbd95', '#c7b58d'].map(c => new THREE.Color(c));
   function plotColor(p, layer) {
     if (!passes(p)) return DIM.clone();
-    if (layer === 'real') return p.type === 'Commercial' ? new THREE.Color('#c9c2b4') : SOIL[(p.id * 7) % SOIL.length].clone();
+    if (layer === 'real') return p.built ? new THREE.Color('#cfc8b9') : p.type === 'Commercial' ? new THREE.Color('#c9c2b4') : SOIL[(p.id * 7) % SOIL.length].clone();
     if (layer === 'size') return new THREE.Color(COLORS.size[p.size] || '#cccccc');
     if (layer === 'sat') return new THREE.Color(p.built ? COLORS.sat.built : COLORS.sat.vacant);
     const c = new THREE.Color(layer === 'stat' ? (COLORS.stat[p.status] || COLORS.stat.Unknown) : (COLORS.cls[p.dev_class] || COLORS.cls.Low));
@@ -547,6 +550,56 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       for (let v = 0; v < it._vN; v++) { const q = v < it._vTop ? c : s; col.set([q.r, q.g, q.b], (it._v0 + v) * 3); }
     });
     plotGeom.attributes.color.needsUpdate = true;
+  }
+
+  // ---- houses standing today ---------------------------------------------------------
+  // Footprints detected on satellite imagery (buildings.geojson). Each becomes an illustrative house at its real
+  // position; a built plot also gets its boundary wall and gate. Merged by material; picking returns the plot.
+  function buildHouses(features) {
+    api.buildings = features.length;
+    if (!features.length) return;
+    const groups = [];
+    for (const f of features) {
+      const p = f.properties, o = p.obb, [cx, cn] = P(o.lon, o.lat), a = o.angle * PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+      const g = new THREE.Group(); g.position.set(cx, Y.plotTop, -cn); g.rotation.y = a; scene.add(g); g.updateMatrixWorld(true);
+      const local = ringPlan(f.geometry.coordinates[0]).map(([e, n]) => { const de = e - cx, dn = n - cn; return [de * ca + dn * sa, de * sa - dn * ca]; });
+      buildHouse(makeKit(g, M, local, hooks), o.length, o.width, p);
+      const plot = p.plot_id != null ? byId.get(p.plot_id) : null;
+      g.userData.pi = plot ? plot._i : -1; groups.push(g);
+    }
+    // boundary walls of built plots, with a gate in the middle of one short side
+    const wg = new THREE.Group(); scene.add(wg); wg.userData.pi = -1; groups.push(wg);
+    const wallParts = [], gateParts = [];
+    for (const p of api.plots) {
+      if (!p.built) continue;
+      const r = p._ring, n = r.length; let gi = 0, gl = Infinity;
+      for (let i = 0; i < n; i++) { const a = r[i], b = r[(i + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > 5 && l < gl) { gl = l; gi = i; } }
+      for (let i = 0; i < n; i++) {
+        const a = r[i], b = r[(i + 1) % n], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy); if (l < .6) continue;
+        const ry = Math.atan2(dy, dx), seg = (t0, t1, list, h, t) => { const g = new THREE.BoxGeometry((t1 - t0) * l, h, t).translate(0, h / 2, 0); g.rotateY(ry); g.translate(a[0] + dx * (t0 + t1) / 2, Y.plotTop, -(a[1] + dy * (t0 + t1) / 2)); const ids = new Float32Array(g.attributes.position.count).fill(p._i); g.setAttribute('pid', new THREE.BufferAttribute(ids, 1)); list.push(g.toNonIndexed()); };
+        if (i === gi && l > 6) { const gw = 3.4 / l; seg(0, .5 - gw / 2, wallParts, 1.7, .22); seg(.5 + gw / 2, 1, wallParts, 1.7, .22); seg(.5 - gw / 2, .5 + gw / 2, gateParts, 1.9, .1); }
+        else seg(0, 1, wallParts, 1.7, .22);
+      }
+    }
+    const buckets = new Map();
+    const push = (mat, geo) => { const l = buckets.get(mat) || []; l.push(geo); buckets.set(mat, l); };
+    for (const g of groups) {
+      g.updateMatrixWorld(true);
+      g.traverse(o => {
+        if (!o.isMesh) return;
+        const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); geo.applyMatrix4(o.matrixWorld);
+        for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geo.deleteAttribute(name);
+        geo.setAttribute('pid', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(g.userData.pi), 1));
+        push(Array.isArray(o.material) ? o.material[0] : o.material, geo);
+      });
+      scene.remove(g);
+    }
+    for (const g of wallParts) push(M.cream, g);
+    for (const g of gateParts) push(M.darkSteel, g);
+    for (const [mat, list] of buckets) {
+      const mesh = new THREE.Mesh(mergeGeometries(list), mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.userData.plots = true; mesh.userData.houses = true;
+      scene.add(mesh); pickables.push(mesh);
+    }
   }
 
   // ---- instanced trees, lamps, cars ------------------------------------------------
@@ -738,7 +791,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     const hits = ray.intersectObjects(pickables, false);
     for (const h of hits) {
       const o = h.object;
-      if (o.userData.plots && h.face) return { plot: api.plots[o.geometry.attributes.pid.array[h.face.a]] };
+      if (o.userData.plots && h.face) { const pl = api.plots[o.geometry.attributes.pid.array[h.face.a]]; if (pl) return { plot: pl }; continue; }
       if (o.userData.landmarks && h.face) return { lm: lmById.get(o.geometry.attributes.lmid.array[h.face.a]) };
       if (o.userData.lm) return { lm: lmById.get(o.userData.lm) };
     }
@@ -833,18 +886,21 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
 
   // ---- day / night, ground, labels --------------------------------------------------
   function setTime(t) {
-    api.time = t === 'night' ? 'night' : 'day';
-    const night = api.time === 'night';
-    hemi.intensity = night ? .16 : 1.05; hemi.color.set(night ? '#5a6fa8' : '#d6e9ff'); hemi.groundColor.set(night ? '#1d1a14' : '#6b5b3b');
-    sun.intensity = night ? .32 : 2.7; sun.color.set(night ? '#9fb4ff' : '#fff0d4');
-    scene.environmentIntensity = night ? .06 : .45;
+    api.time = t === 'night' ? 'night' : t === 'evening' ? 'evening' : 'day';
+    const night = api.time === 'night', eve = api.time === 'evening';
+    SUN_DIR.copy(eve ? SUN_EVE : SUN_DAY); su.sunPosition.value.copy(SUN_DIR);       // evening: low sun, long shadows
+    su.turbidity.value = eve ? 8 : 5.5; su.rayleigh.value = eve ? 2.4 : 1.25;
+    hemi.intensity = night ? .16 : eve ? .62 : 1.05; hemi.color.set(night ? '#5a6fa8' : eve ? '#ffd9b0' : '#d6e9ff'); hemi.groundColor.set(night ? '#1d1a14' : eve ? '#5a4a3a' : '#6b5b3b');
+    sun.intensity = night ? .32 : eve ? 2.5 : 2.7; sun.color.set(night ? '#9fb4ff' : eve ? '#ffb26b' : '#fff0d4');
+    scene.environmentIntensity = night ? .06 : eve ? .32 : .45;
     skyU.top.value.set(night ? '#060b1a' : '#5d93d6'); skyU.hor.value.set(night ? '#1b2440' : '#dbe8f2'); skyU.bot.value.set(night ? '#0d0f14' : '#c9c3b1');
-    scene.fog.color.set(night ? '#141b30' : '#dbe8f2');
+    scene.fog.color.set(night ? '#141b30' : eve ? '#e9c9a6' : '#dbe8f2');
     stars.visible = night; sky.visible = night; physSky.visible = !night;
     for (const m of M.night) m.emissiveIntensity = night ? (m === M.lampOn ? 4 : 1.3) : 0;
     for (const m of nightSigns) m.emissiveIntensity = night ? .7 : 0;
     M.water.emissiveIntensity = night ? .12 : .35;
-    renderer.toneMappingExposure = night ? 1.1 : 1.0;
+    renderer.toneMappingExposure = night ? 1.1 : eve ? .92 : 1.0;
+    for (const m of M.night) if (eve) m.emissiveIntensity = m === M.lampOn ? 1.6 : .35;
     if (night) ensureComposer();
   }
   // ---- streamed satellite ground (Esri World Imagery, quadtree level of detail) -----------
@@ -966,8 +1022,8 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     const base = document.createElement('canvas'); base.width = base.height = S * 2; const g = base.getContext('2d');
     g.fillStyle = 'rgba(20,14,9,.88)'; g.fillRect(0, 0, S * 2, S * 2);
     g.beginPath(); boundaryPlan.forEach(([e, n], i) => { const [x, y] = toC(e, n); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.fillStyle = '#4f6b3c'; g.fill();
-    const plotCol = { High: '#3fae5f', Medium: '#e0a93a', Low: '#c9573f' };
-    for (const p of api.plots) { const [x, y] = toC(p._c[0], p._c[1]); g.fillStyle = plotCol[p.dev_class]; g.fillRect(x - .9, y - .9, 1.8, 1.8); }
+    for (const p of api.plots) if (!p.built) { const [x, y] = toC(p._c[0], p._c[1]); g.fillStyle = '#b9a67c'; g.fillRect(x - .9, y - .9, 1.8, 1.8); }
+    for (const p of api.plots) if (p.built) { const [x, y] = toC(p._c[0], p._c[1]); g.fillStyle = '#ff7a4d'; g.fillRect(x - 1.6, y - 1.6, 3.2, 3.2); }   // houses standing today
     if (api.nala) { g.strokeStyle = '#3d9be0'; g.lineWidth = 3; g.beginPath(); api.nala.forEach(([e, n], i) => { const [x, y] = toC(e, n); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); }
     for (const lm of api.landmarks) { if (lm.kind === 'nala') continue; const [x, y] = toC(lm._center.x, -lm._center.z); g.fillStyle = KIND_COLOR[lm.kind] || '#fff'; g.beginPath(); g.arc(x, y, lm.kind === 'park' ? 3 : 4, 0, 2 * PI); g.fill(); }
     g.strokeStyle = '#f3ead8'; g.lineWidth = 2; g.beginPath(); boundaryPlan.forEach(([e, n], i) => { const [x, y] = toC(e, n); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.stroke();

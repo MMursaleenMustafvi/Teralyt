@@ -891,7 +891,8 @@ export function buildLandmark(kind, k, L, W, lm) {
   return true;
 }
 
-// main gate across the boulevard (local X along the road, Z across it)
+// main gate across the entrance road (local X along the road, Z across it): two towers, a centre pier on the
+// median, a beam with the name board and a white canopy over each carriageway, as the gate reads on satellite imagery
 export function buildGate(k, span) {
   const M = k.M, half = span / 2;
   for (const s of [-1, 1]) {
@@ -901,10 +902,53 @@ export function buildGate(k, span) {
     k.cyl(2.4, 2.4, 1.6, 8, M.sand, 0, 15.8, z);
     k.geo(dome(2.4, 2.8), M.domeGreen, 0, 17.4, z);
     k.cyl(.08, .08, 1.6, 6, M.gold, 0, 20.2, z);
-    k.box(3, 3.5, 14, M.sand, 0, 0, z + s * 10);
+    k.box(3, 3.5, 14, M.sand, 0, 0, z + s * 10);              // wing wall
     k.box(3.4, .4, 14.4, M.cream, 0, 3.5, z + s * 10);
+    k.building(4, 3.4, 1, M.facWhite, -7, z - s * 1.5, 0, { tanks: false });   // guard room
+    k.flag(3.6, z + s * 1.2, 21);
+    // canopy over this carriageway, on four slim columns
+    const cz = s * (half / 2 + 1.2), cw = half - 2.6;
+    k.box(13, .45, cw + 1.6, M.white, 0, 7.6, cz);
+    k.box(13.4, .22, cw + 2, M.green, 0, 8.05, cz);
+    for (const [cx, dz] of [[-5.6, -1], [-5.6, 1], [5.6, -1], [5.6, 1]]) k.cyl(.22, .22, 7.6, 10, M.steel, cx, 0, cz + dz * cw / 2);
+    // barrier arm (raised) and its post
+    k.box(.5, 1.1, .5, M.yellow, -8.5, 0, s * (half - .8));
+    k.box(.16, .16, 6.5, M.red, -8.5, 1.9, s * (half - 4), 0);
+    k.lamp(-11, s * (half + 1.5), 0, 'park'); k.lamp(11, s * (half + 1.5), 0, 'park');
   }
-  k.box(4, 3.2, span + 6, M.sand, 0, 11, 0);
-  k.box(4.4, .6, span + 7, M.cream, 0, 14.2, 0);
-  for (const s of [-1, 1]) k.sign('FDA CITY  FAISALABAD', Math.min(span * .8, 28), 2.2, s * 2.12, 11.5, 0, s * PI / 2, { bg: '#1f5a38', border: '#d6a840' });
+  k.box(2.4, 11, 2.4, M.sand, 0, 0, 0);                          // centre pier on the median
+  k.box(3, .5, 3, M.cream, 0, 11, 0);
+  k.box(4, 3.4, span + 6, M.sand, 0, 11, 0);                     // beam
+  k.box(4.4, .6, span + 7, M.cream, 0, 14.4, 0);
+  k.box(4.4, .35, span + 7, M.green, 0, 10.75, 0);
+  for (const s of [-1, 1]) k.sign('FDA CITY  FAISALABAD', Math.min(span * .8, 26), 2.3, s * 2.12, 11.55, 0, s * PI / 2, { bg: '#1f5a38', border: '#d6a840' });
+}
+
+// a house standing on a plot today (local X along the footprint's long side). Illustrative: the footprint and
+// position are real (detected on satellite imagery), the look and the number of storeys are assumed.
+export function buildHouse(k, L, W, p) {
+  const M = k.M, r = rng((p.id || 1) * 97 + 13), st = Math.max(1, Math.min(3, p.storeys || 1));
+  const FAC = [M.facCream, M.facWhite, M.facPink, M.facSand, M.facBrick, M.facCream, M.facWhite];
+  const fac = FAC[(r() * FAC.length) | 0], trim = [M.cream, M.white, M.sand, M.terracotta][(r() * 4) | 0];
+  const l = Math.max(4.5, L * .94), w = Math.max(4, W * .94), s = r() < .5 ? 1 : -1;
+  if (l < 9 || w < 6.5 || st === 1) {                              // small building: one block
+    k.building(l, w, st, fac, 0, 0, 0, { tanks: l > 7 && w > 5.5 });
+    if (l > 6) k.box(.12, 2.1, 1.1, M.wood, s * (l / 2 + .03), 0, w * .15);
+    return;
+  }
+  const bl = l * .84, bx = -s * l * .08, h = st * FLOOR, fx = bx + s * bl / 2;   // main block, porch on the front
+  k.building(bl, w, st, fac, bx, 0, 0, { tanks: false });
+  const pw = Math.min(w * .62, 7.5), pd = l / 2 - Math.abs(fx) - .1, pz = (r() - .5) * (w - pw) * .6;
+  if (pd > .9) {
+    k.box(pd, .28, pw, trim, fx + s * pd / 2, FLOOR - .1, pz);                    // porch slab = first floor balcony
+    for (const dz of [-1, 1]) k.box(.34, FLOOR - .1, .34, M.white, fx + s * (pd - .2), 0, pz + dz * (pw / 2 - .2));
+    k.box(.1, 1.0, pw, trim, fx + s * (pd - .05), FLOOR + .18, pz);
+    for (const dz of [-1, 1]) k.box(pd, 1.0, .1, trim, fx + s * pd / 2, FLOOR + .18, pz + dz * (pw / 2 - .05));
+  }
+  k.box(.12, 2.2, 1.25, M.wood, fx + s * .04, 0, pz);                             // front door
+  // stair room and water tank on the roof
+  const mx = bx - s * bl * .22, mz = (r() < .5 ? 1 : -1) * w * .2;
+  k.box(3.1, 2.5, 3.1, M.cream, mx, h + .45, mz); k.box(3.5, .22, 3.5, M.roofGray, mx, h + 2.95, mz);
+  k.cyl(.75, .75, 1.3, 12, r() < .5 ? M.tank : M.white, mx, h + 3.17, mz);
+  if (r() < .6) k.box(bl * .5, .22, .22, trim, bx, h * .52, w / 2 + .1);          // a band on the side wall
 }
