@@ -1,13 +1,168 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#14100c"><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js"></script><script src="assets/bg.js"></script><script src="assets/iso.js"></script><title>3D Map · Terralyt</title></head><body data-role="user"><div class="pg"><h1>FDA Society · 3D map</h1><p class="mut">Drag to rotate and tilt, scroll to zoom, click a plot for details.</p>
-<div class="tools"><button class="btn act" data-l="cls">Development</button><button class="btn o" data-l="stat">Plot status</button><button class="btn o" data-l="sat">Satellite tone</button><button class="btn o" id="rs">Reset view</button><button class="btn o" id="zi">+</button><button class="btn o" id="zo">&minus;</button></div>
-<div class="grid" style="grid-template-columns:minmax(0,2.2fr) minmax(260px,1fr)"><div class="m3"><svg id="s" style="height:auto"></svg><span class="hint">Tall = built · flat = vacant</span><div class="leg" id="lg"></div></div>
-<div class="card" id="side"><h3>Select a plot</h3><p class="mut">Click a plot on the map to see its status, source and rating.</p></div></div>
-<div class="note">Demo 3D scene. The CesiumJS model will replace this view later; <code>pick(id)</code> and the layer buttons are reusable.</div></div>
-<script>const I=Iso(document.getElementById('s'),{onpick:pick});
-const LG={cls:[['#3fae5f','High'],['#e0a93a','Medium'],['#c9573f','Low']],stat:[['#34c38f','Available'],['#e0a93a','Reserved'],['#c9573f','Sold'],['#9aa5a0','Unknown']],sat:[['#8c7b6a','Built'],['#b8ad92','Vacant']]};
-function lg(){lg.innerHTML=''}const L=document.getElementById('lg');function leg(){L.innerHTML=LG[I.S.layer].map(x=>'<span><i style="background:'+x[0]+'"></i>'+x[1]+'</span>').join('')}leg();
-document.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{I.S.layer=b.dataset.l;document.querySelectorAll('[data-l]').forEach(x=>x.className='btn '+(x==b?'act':'o'));leg();I.draw()});
-rs.onclick=()=>{Object.assign(I.S,{th:.5,tilt:.55,zoom:innerWidth<700?1.1:1.25,fx:7.45,fy:5.1});I.draw()};
-zi.onclick=()=>{I.S.zoom=Math.min(3,I.S.zoom*1.25);I.draw()};zo.onclick=()=>{I.S.zoom=Math.max(.6,I.S.zoom/1.25);I.draw()};
-function pick(i){I.S.sel=i;I.draw();const p=PLOTS[i-1];document.getElementById('side').innerHTML='<h3>'+p.no+'</h3><p class="mut">'+p.blk+' · '+p.area+'</p><p>Status '+badge(p.st)+'<br><span class="mut">Source: '+(p.st=='Unknown'?'none':p.src)+' · Confidence: '+p.conf+'</span></p><p>Development '+badge(p.cls)+'</p><a class="btn" href="plot.html?id='+i+'">Full details</a> <a class="btn o" href="trends.html?id='+i+'">Trends</a>'}
-if(qs('id'))pick(+qs('id'))</script></body></html>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#14100c"><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="assets/style.css"><script src="assets/app.js"></script><script src="assets/bg.js"></script><title>3D Map · Terralyt</title>
+<script type="importmap">{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+  "three-mesh-bvh":"https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.8/build/index.module.js"
+}}</script>
+<style>
+.stage{position:relative;height:min(76vh,760px);min-height:420px;border-radius:28px;overflow:hidden;border:1px solid var(--ln);background:#1a120a}
+#model,#cesium{position:absolute;inset:0}#model[hidden],#cesium[hidden]{display:none}
+.st{position:absolute;inset:0;display:grid;place-items:center;background:rgba(20,14,9,.74);color:var(--cr);text-align:center;padding:20px;z-index:8;font-size:14px}
+.st[hidden]{display:none}.st.error{background:rgba(60,22,14,.92)}.st.error b{display:block;font-size:17px;margin-bottom:6px}
+.sp{width:30px;height:30px;border:3px solid rgba(255,255,255,.18);border-top-color:var(--g2);border-radius:50%;animation:spin 1s linear infinite;display:block;margin:0 auto 12px}@keyframes spin{to{transform:rotate(360deg)}}
+#tip{position:absolute;pointer-events:none;background:rgba(20,14,9,.94);color:var(--cr);padding:6px 10px;border-radius:10px;font-size:12.5px;z-index:9;transform:translate(14px,-34px);white-space:nowrap;border:1px solid var(--ln)}#tip[hidden]{display:none}
+.stage .leg{z-index:4}.stage .hint{z-index:4;top:12px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);background:rgba(20,14,9,.7);padding:4px 10px;border-radius:99px;white-space:nowrap}
+.attr{position:absolute;left:14px;bottom:52px;z-index:4;font-size:11px;color:#e8dfc8;background:rgba(20,14,9,.7);padding:3px 8px;border-radius:8px}.attr[hidden]{display:none}
+.vt{display:inline-flex;gap:4px;padding:4px;border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--ln);margin-bottom:12px}.vt button{border:0;background:none;color:var(--tx);font:600 13.5px inherit;font-family:inherit;padding:8px 16px;border-radius:99px;cursor:pointer}.vt button.act{background:linear-gradient(135deg,#3a8a55,#1f5a38);color:var(--cr)}
+.tools .sep{width:1px;background:var(--ln);margin:2px 4px}.tools .sw{margin:0;flex:1;min-width:230px}.tools .sw input{margin:0;padding:9px 16px;border-radius:99px;font-size:14px}
+.blk{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-6px 0 14px;font-size:13px;color:var(--mut)}.blk .btn{padding:6px 12px;font-size:12.5px}
+.kv2{width:100%;min-width:0}.kv2 th{width:42%;font-weight:600;color:var(--mut);padding:8px 6px 8px 0}.kv2 td{padding:8px 0;white-space:normal}
+.prov{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--mut);margin-top:10px}.prov b{color:var(--cr);font-weight:600}
+.lmchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.lmchips button{background:rgba(255,255,255,.06);border:1px solid var(--ln);color:var(--tx);border-radius:99px;padding:6px 11px;font:600 12px inherit;font-family:inherit;cursor:pointer}.lmchips button:hover{border-color:var(--g2);color:var(--g2)}
+.kdot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.cesium-viewer-bottom{font-size:10px!important;opacity:.75}.cesium-credit-logoContainer{display:none!important}
+.flt{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-6px 0 14px;font-size:13px;color:var(--mut)}.flt .chip2{background:rgba(255,255,255,.05);border:1.5px solid var(--ln);color:var(--tx);border-radius:99px;padding:5px 11px;font:600 12px inherit;font-family:inherit;cursor:pointer}.flt .chip2.on{border-color:var(--g2);background:rgba(88,168,104,.22);color:var(--cr)}.flt .chip2 i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px}
+.cap{position:absolute;left:50%;bottom:54px;transform:translateX(-50%);z-index:6;max-width:min(560px,86%);background:rgba(20,14,9,.9);border:1px solid var(--ln);border-radius:16px;padding:12px 16px;color:var(--cr);font-size:13.5px;box-shadow:0 14px 30px rgba(0,0,0,.45)}.cap[hidden]{display:none}.cap b{display:block;font-size:15.5px;margin-bottom:3px}.cap .row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}.cap button{background:rgba(255,255,255,.08);border:1px solid var(--ln);color:var(--cr);border-radius:99px;padding:5px 12px;font:600 12px inherit;font-family:inherit;cursor:pointer}
+.bars div{display:flex;align-items:center;gap:8px;font-size:12.5px;margin:4px 0}.bars span{width:80px;color:var(--mut)}.bars i{height:9px;border-radius:5px;background:var(--g2);display:inline-block}
+@media(max-width:760px){.stage{height:64vh}}
+</style></head><body data-role="user"><div class="pg"><h1>FDA City · 3D map</h1>
+<p class="mut">Left-drag to pan, right-drag to rotate and tilt, scroll to zoom. Click any plot or building for details.</p>
+<div class="vt" role="tablist"><button class="act" data-v="model" role="tab">3D society model</button><button data-v="earth" role="tab">Real-world map (CesiumJS)</button></div>
+<div class="tools"><button class="btn act" data-l="real">Realistic</button><button class="btn o" data-l="cls">Development</button><button class="btn o" data-l="stat">Plot status</button><button class="btn o" data-l="sat">Built / vacant</button><button class="btn o" data-l="size">Plot size</button><span class="sep"></span><button class="btn o om" id="tn" title="Toggle day and night">Night</button><button class="btn o om" id="gr" title="Show today's satellite photo under the plan">Satellite photo</button><button class="btn o om" id="tour" title="Fly through the main places of FDA City">&#9654; Tour</button><button class="btn o om" id="lb">Labels on</button><button class="btn o" id="rs">Reset view</button><button class="btn o" id="zi" aria-label="Zoom in">+</button><button class="btn o" id="zo" aria-label="Zoom out">&minus;</button><div class="sw"><input id="mq" placeholder="Find plot (B-12), block, mosque, school, park D-3, or lat, lon" autocomplete="off"><div class="dd" id="mr"></div></div></div>
+<div class="blk">Jump to block <button class="btn o" data-b="A">A</button><button class="btn o" data-b="B">B</button><button class="btn o" data-b="C">C</button><button class="btn o" data-b="D">D</button><button class="btn o" data-b="E">E</button><button class="btn o" data-b="F">F</button></div>
+<div class="flt om" id="flt">Show <button class="chip2 on" data-s="5 Marla"><i style="background:#8fd16a"></i>5 Marla</button><button class="chip2 on" data-s="10 Marla"><i style="background:#ee8fb8"></i>10 Marla</button><button class="chip2 on" data-s="20 Marla"><i style="background:#7fa6e6"></i>20 Marla</button><button class="chip2 on" data-s="Commercial"><i style="background:#f0a040"></i>Commercial</button><span class="sep" style="width:1px;height:18px;background:var(--ln);margin:0 4px"></span><button class="chip2 on" data-t="Available">Available</button><button class="chip2 on" data-t="Reserved">Reserved</button><button class="chip2 on" data-t="Sold">Sold</button><button class="chip2 on" data-t="Unknown">Unknown</button><span id="fcount"></span></div>
+<div class="grid" style="grid-template-columns:minmax(0,2.4fr) minmax(280px,1fr)"><div class="stage" id="stage"><div id="model"></div><div id="cesium" hidden></div><div class="st" id="st"><div><span class="sp"></span>Starting 3D view…</div></div><div id="tip" hidden></div><span class="hint" id="hint">Layout from the official FDA City maps · road widths measured on satellite imagery</span><div class="attr" id="attr" hidden>Satellite imagery © Esri, Maxar, Earthstar Geographics</div><div class="cap" id="cap" hidden></div><div class="leg" id="lg"></div></div>
+<div class="card" id="side"></div></div>
+<div class="note"><b>Data sources.</b> Blocks A to F, plot sizes, parks, mosques, schools and all named sites: the official FDA City plan and block maps, aligned to satellite imagery at the roundabouts. Street centrelines: OpenStreetMap. Road widths, roundabouts and the Barani Nala: measured on satellite imagery. Positions are marked <em>approximate</em>. Plot outlines are drawn at the official sizes inside the real street blocks; plot status, development class and heights are sample values. Buildings are illustrative 3D models of the facilities named on the official map.</div></div>
+<script type="module">
+import { Society3D } from './assets/society3d.js';
+const LG={real:[['#b3a079','Plot (vacant land)'],['#3f8f3f','Park'],['#3a3b3e','Road'],['#3c8fba','Nalla']],size:[['#8fd16a','5 Marla'],['#ee8fb8','10 Marla'],['#7fa6e6','20 Marla'],['#f0a040','Commercial']],cls:[['#3fae5f','High'],['#e0a93a','Medium'],['#c9573f','Low']],stat:[['#34c38f','Available'],['#e0a93a','Reserved'],['#c9573f','Sold'],['#9aa5a0','Unknown']],sat:[['#9c8a72','Built'],['#ddd2b2','Vacant']]};
+const $=id=>document.getElementById(id),side=$('side'),st=$('st'),tip=$('tip'),L=$('lg');
+let layer='real',view='model',model=null,earth=null;
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function leg(){const k=(view==='earth'&&(layer==='real'||layer==='size'))?'cls':layer;L.innerHTML=LG[k].map(x=>'<span><i style="background:'+x[0]+'"></i>'+x[1]+'</span>').join('')}leg();
+function setStatus(state,msg){if(state==='ready'){st.hidden=true;return}st.hidden=false;st.className='st '+state;st.innerHTML=state==='error'?'<div><b>3D map unavailable</b>'+esc(msg)+'</div>':'<div><span class="sp"></span>'+esc(msg)+'</div>'}
+const QUICK=[['Markazi Park','Central Park'],['Jamia Mosque (B)','Mosque'],['Boys High School','High school'],['FDA City Hospital','Hospital'],['Five Star Hotel site','Hotel site'],['Barani Nala','Nalla'],['Area for FDA City Homes','FDA City Homes'],['Proposed Cricket Stadium','Stadium'],['Fire Brigade','Fire brigade'],['Metro Store','Metro']];
+function idle(){
+  const n=model&&model.plots?model.plots.length.toLocaleString():'…',m=model&&model.landmarks?model.landmarks.length:'…';
+  side.innerHTML='<h3>Select a plot or building</h3><p class="mut">Click any plot, mosque, school, park or other building on the map, or search above, to see its details.</p><div class="prov"><span><b>Society</b> FDA City, Faisalabad</span><span><b>Plots</b> '+n+'</span><span><b>Landmarks</b> '+m+'</span><span><b>Blocks</b> A–F</span></div>'
+  +(view==='model'?'<p class="mut" style="margin:14px 0 0;font-size:12.5px">Quick tour</p><div class="lmchips">'+QUICK.map(([q,t])=>'<button data-q="'+esc(q)+'">'+esc(t)+'</button>').join('')+'</div>':'');
+  side.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{const r=model.search(b.dataset.q).find(x=>x.lm);if(r)model.selectLandmark(r.lm)});
+}
+idle();
+function pick(p){
+  if(!p){idle();return}
+  if(p.landmark){
+    side.innerHTML='<h3>'+esc(p.name)+'</h3><p class="mut">'+esc(p.type_label)+(p.block?' · '+esc(p.block):'')+(p.area_kanal?' · about '+p.area_kanal+' kanal':'')+'</p>'
+    +(p.proposed?'<div class="note">Proposed facility shown on the official FDA City map. It is not built yet.</div>':'')
+    +'<table class="kv2"><tr><th>Facility</th><td>'+esc(p.type_label)+'</td></tr>'+(p.block?'<tr><th>Block</th><td>'+esc(p.block)+'</td></tr>':'')+(p.area_kanal?'<tr><th>Site area</th><td>about '+p.area_kanal+' kanal ('+Math.round(p.area_kanal*505.857).toLocaleString()+' m²)</td></tr>':'')+(p.height_m?'<tr><th>Model height</th><td>about '+p.height_m+' m</td></tr>':'')+(p.length_m?'<tr><th>Length in society</th><td>about '+(p.length_m/1000).toFixed(1)+' km</td></tr>':'')+'<tr><th>Position</th><td>'+esc(p.accuracy)+'</td></tr></table>'
+    +'<p class="mut" style="font-size:12.5px;margin-top:12px">'+esc(p.source)+'. '+(p.kind==='nala'?'The channel is drawn at about 7 m wide with banks, and with bridges where roads cross it. No plots are placed on it or its banks.':'The 3D building is an illustrative model of the facility, not a survey of the real structure.')+'</p>';
+    return;
+  }
+  const unk=p.status==='Unknown',bld=p.built?(p.storeys+(p.storeys>1?' storeys':' storey')+' · '+p.height+' m ('+esc(p.height_source)+')'):'Vacant plot';
+  side.innerHTML='<h3>Plot '+esc(p.plot_no)+'</h3><p class="mut">'+esc(p.block)+' · '+esc(p.size)+' · '+esc(p.type)+'</p>'
+  +'<p>Status '+badge(p.status)+'<br><span class="mut">Source: '+esc(unk?'Not recorded':p.source)+' · Confidence: '+esc(p.confidence)+'</span></p>'
+  +(unk?'<div class="note">Status Unknown. Contact the society office for confirmation.</div>':'')
+  +'<p>Development '+badge(p.dev_class)+' <span class="mut">area class</span></p>'
+  +'<table class="kv2"><tr><th>Building</th><td>'+bld+'</td></tr><tr><th>Plot area</th><td>about '+Math.round(p.area_m2)+' m²</td></tr><tr><th>Coordinates</th><td>'+(+p.lat).toFixed(5)+', '+(+p.lon).toFixed(5)+'</td></tr><tr><th>Geometry</th><td>'+esc(p.accuracy)+'</td></tr></table>'
+  +'<p style="margin-top:14px"><a class="btn o" href="trends.html?id='+encodeURIComponent(p.id)+'">Trends &amp; forecast</a></p>'
+  +'<p class="mut" style="font-size:12.5px">Plot status comes from verified records only, never from satellite imagery. Heights are assumed at 3.5 m per storey.</p>';
+}
+function blockPanel(b){
+  const bar=(m,tot)=>Object.entries(m).sort((x,y)=>y[1]-x[1]).map(([k,v])=>'<div><span>'+esc(k)+'</span><i style="width:'+Math.max(4,Math.round(v/tot*150))+'px"></i>'+v.toLocaleString()+'</div>').join('');
+  side.innerHTML='<h3>Block '+esc(b.block)+'</h3><p class="mut">'+b.plots.toLocaleString()+' plots · '+b.parks+' parks · '+b.mosques+' mosques</p>'
+  +'<p class="mut" style="margin:10px 0 2px">Plot sizes</p><div class="bars">'+bar(b.size,b.plots)+'</div>'
+  +'<p class="mut" style="margin:10px 0 2px">Status (sample records)</p><div class="bars">'+bar(b.status,b.plots)+'</div>'
+  +(b.facilities.length?'<p class="mut" style="margin:10px 0 2px">Facilities</p><p style="font-size:13px">'+b.facilities.map(esc).join(' · ')+'</p>':'')
+  +'<p style="margin-top:12px"><button class="btn o" id="bf">'+(model.filter.block===b.block?'Show all blocks':'Highlight only Block '+esc(b.block))+'</button></p>';
+  $('bf').onclick=()=>{const on=model.filter.block!==b.block;model.setFilter({block:on?b.block:null});blockPanel(b)};
+}
+function hover(p,pos){if(!p||!pos){tip.hidden=true;return}tip.hidden=false;tip.textContent=p.landmark?p.name:(p.plot_no+' · '+p.status+' · '+p.dev_class);tip.style.left=pos.x+'px';tip.style.top=pos.y+'px'}
+window.__log=[];addEventListener('error',e=>window.__log.push('error: '+e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno));addEventListener('unhandledrejection',e=>window.__log.push('rejection: '+(e.reason&&e.reason.message||e.reason)));
+
+model=Society3D($('model'),{audit:qs('audit')==='1',onPick:pick,onHover:hover,onBlock:blockPanel,onStatus:(s,m)=>{if(view==='model')setStatus(s,m)},layer});
+window.__map=model;
+model.ready.then(()=>{
+  idle();
+  if(qs('time')==='night')toggleNight();
+  if(qs('ground')==='satellite')toggleGround();
+  const id=qs('id'),pn=qs('plot'),lm=qs('lm');
+  if(id)model.select(id);else if(pn){const r=model.search(pn);if(r[0]&&r[0].id!=null)model.select(r[0].id)}else if(lm)model.selectLandmark(lm);
+  if(qs('view')==='earth')switchView('earth');
+}).catch(()=>{});
+
+// ---- real-world view (CesiumJS, loaded on demand) ----
+const CES='https://cesium.com/downloads/cesiumjs/releases/1.119/Build/Cesium/';
+const loadScript=src=>new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s)});
+async function openEarth(){
+  if(earth)return earth;
+  setStatus('loading','Loading CesiumJS…');
+  window.CESIUM_BASE_URL=CES;
+  const l=document.createElement('link');l.rel='stylesheet';l.href=CES+'Widgets/widgets.css';document.head.appendChild(l);
+  try{await loadScript(CES+'Cesium.js')}catch(e){setStatus('error','CesiumJS did not load from the CDN. Check the internet connection.');return null}
+  try{await loadScript('assets/config.js')}catch(e){}
+  await loadScript('assets/map3d.js');
+  earth=window.Map3D('cesium',{onPick:pick,onHover:hover,onStatus:(s,m)=>{if(view==='earth')setStatus(s,m)},layer});window.__earth=earth;
+  return earth;
+}
+async function switchView(v){
+  if(v===view)return;view=v;
+  document.querySelectorAll('[data-v]').forEach(b=>b.classList.toggle('act',b.dataset.v===v));
+  document.querySelectorAll('.om').forEach(b=>b.hidden=v!=='model');if(v!=='model'&&touring)stopTour();
+  $('model').hidden=v!=='model';$('cesium').hidden=v!=='earth';$('attr').hidden=!(v==='model'&&model.ground==='satellite');$('hint').hidden=v!=='model';
+  tip.hidden=true;leg();
+  if(v==='earth'){const e=await openEarth();if(e){e.ready.then(()=>{setStatus('ready');e.setLayer(layer);const s=model.selected;if(s&&s.plot)e.select(s.plot)}).catch(()=>{})}}
+  else{setStatus(model.rendered()?'ready':'loading','Building 3D model…');model.resize();idle()}
+}
+document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>switchView(b.dataset.v));
+
+// ---- controls ----
+const active=()=>view==='earth'&&earth?earth:model;
+document.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{layer=b.dataset.l;document.querySelectorAll('[data-l]').forEach(x=>x.className='btn '+(x==b?'act':'o'));leg();model.setLayer(layer);earth&&earth.setLayer(layer==='real'||layer==='size'?'cls':layer)});
+document.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{active().flyToBlock(b.dataset.b);if(active()===model)blockPanel(model.blockStats(b.dataset.b))});
+$('rs').onclick=()=>active().reset();$('zi').onclick=()=>active().zoomIn();$('zo').onclick=()=>active().zoomOut();
+function toggleNight(){const n=model.time!=='night';model.setTime(n?'night':'day');$('tn').textContent=n?'Day':'Night';$('tn').className='btn '+(n?'act':'o')+' om'}
+async function toggleGround(){const s=model.ground!=='satellite';$('gr').disabled=true;const g=await model.setGround(s?'satellite':'plan');$('gr').disabled=false;$('gr').className='btn '+(g==='satellite'?'act':'o')+' om';$('gr').textContent=g==='satellite'?'3D model ground':'Satellite photo';$('attr').hidden=g!=='satellite';$('hint').textContent=g==='satellite'?'Plan over today\'s satellite photo':'Layout from the official FDA City maps · road widths measured on satellite imagery'}
+function toggleLabels(){model.setLabels(!model.labels);$('lb').textContent=model.labels?'Labels on':'Labels off';$('lb').className='btn '+(model.labels?'o':'act')+' om'}
+$('tn').onclick=toggleNight;$('gr').onclick=toggleGround;$('lb').onclick=toggleLabels;
+function applyFilter(){
+  const on=a=>[...document.querySelectorAll('#flt '+a)].filter(x=>x.classList.contains('on')).map(x=>x.dataset.s||x.dataset.t);
+  const sz=on('[data-s]'),stt=on('[data-t]');
+  const n=model.setFilter({sizes:sz.length===4?null:new Set(sz),statuses:stt.length===4?null:new Set(stt)});
+  $('fcount').textContent=(sz.length<4||stt.length<4)?'· '+n.toLocaleString()+' plots match':'';
+}
+document.querySelectorAll('#flt .chip2').forEach(b=>b.onclick=()=>{b.classList.toggle('on');applyFilter()});
+const TOUR=[
+  ['Main Boulevard (202 ft)',null,'The 202 ft main boulevard: two three-lane carriageways with a planted median, service roads on both sides and commercial plots along it.'],
+  ['Markazi Park','lm','Block A: Markazi Park, the 74.76 kanal central park, with the community centre inside it.'],
+  ['Boys High School','lm','Next to the park the official map places the Girls and Boys High Schools, with the post office, police station and telephone exchange between them.'],
+  ['Five Star Hotel site','lm','South of the park: the site reserved for a five star hotel, the commercial zone, the Block A hospital and the fire brigade.'],
+  ['Jamia Mosque (B)','lm','Every block has a central complex. In Block B: Jamia Mosque (5 kanal), primary school (13.9 kanal), a 25.5 kanal playground, dispensary and commercial area.'],
+  ['Barani Nala','lm','The Barani Nala storm drain crosses Block B and runs along Block F. No plots are placed on the channel or its banks.'],
+  ['Proposed Cricket Stadium','lm','North-east of Block C the plan reserves sites for a university, a cricket stadium and an IMAX theatre.'],
+  ['Jamia Mosque (D)','lm','Block D centre: Jamia Mosque, primary school, 24.9 kanal playground and commercial area.'],
+  ['FDA City Hospital','lm','The Area for FDA City Homes has a hospital, sports complex, public building, school and playground E-6.'],
+  ['Metro Store',null,'At the main entrance from Sargodha Road stands the Metro store, shown on the official plan.']
+];
+let touring=null;
+function stopTour(){touring=null;$('cap').hidden=true;$('tour').innerHTML='&#9654; Tour';$('tour').className='btn o om'}
+async function runTour(){
+  if(touring){stopTour();return}
+  const me=touring={};$('tour').innerHTML='&#9632; Stop tour';$('tour').className='btn act om';
+  for(let i=0;i<TOUR.length&&touring===me;i++){
+    const [q,,text]=TOUR[i],r=model.search(q).find(x=>x.lm);
+    if(r)model.selectLandmark(r.lm);else if(q.startsWith('Main'))model.reset(2);
+    $('cap').hidden=false;$('cap').innerHTML='<b>'+(i+1)+' / '+TOUR.length+' · '+esc(q)+'</b>'+esc(text)+'<div class="row"><button id="cnext">Next</button><button id="cstop">Stop</button></div>';
+    await new Promise(res=>{const t=setTimeout(res,7000);$('cnext').onclick=()=>{clearTimeout(t);res()};$('cstop').onclick=()=>{clearTimeout(t);stopTour();res()}});
+  }
+  if(touring===me){stopTour();model.reset()}
+}
+$('tour').onclick=runTour;
+const mq=$('mq'),mr=$('mr');let res=[];
+function showRes(){mr.innerHTML=res.length?'<div class="h">Results</div>'+res.map((r,i)=>'<a href="#" data-i="'+i+'"><span>'+esc(r.label)+'</span><small>'+esc(r.sub)+'</small></a>').join(''):'<div class="h">No result found. Check the spelling or try a nearby plot number.</div>';mr.classList.add('on')}
+mq.addEventListener('input',()=>{const a=active();if(!a||!a.plots||!a.plots.length)return;const q=mq.value.trim();if(!q){mr.classList.remove('on');return}res=a.search(q);showRes()});
+mq.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();if(res[0])go(res[0])}else if(e.key==='Escape')mr.classList.remove('on')});
+mr.addEventListener('mousedown',e=>{const a=e.target.closest('a');if(a){e.preventDefault();go(res[+a.dataset.i])}});
+document.addEventListener('click',e=>{if(!mq.parentNode.contains(e.target))mr.classList.remove('on')});
+function go(r){mr.classList.remove('on');const a=active();if(r.id!=null)a.select(r.id);else if(r.lm!=null&&a.selectLandmark)a.selectLandmark(r.lm);else if(r.block)a.flyToBlock(r.block)}
+</script></body></html>
