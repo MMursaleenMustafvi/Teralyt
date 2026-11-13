@@ -70,8 +70,11 @@ for g, p in zip(PG, PP):
 print("- plot area vs official size:", dict(dev))
 print(f"- non-rectangular plots (fill < 80% of bounding box): {len(odd)}", odd[:8])
 # plots not fronting any road (distance to right-of-way > 3 m)
-far = [PP[i]["plot_no"] for i, g in enumerate(PG) if len(row_tree.query(g.buffer(3.0), predicate="intersects")) == 0]
-print(f"- plots with no road frontage (> 3 m from any road): {len(far)} ({100*len(far)/len(PG):.1f}%)", far[:6])
+# (plots read from a block map can sit a few metres off an OpenStreetMap street: the sheets register to about 2.5 m)
+gap = [min((row_parts[j].distance(g) for j in row_tree.query(g.buffer(30.0))), default=99.0) for g in PG]
+far = [PP[i]["plot_no"] for i, d in enumerate(gap) if d > 6.0]
+print(f"- plots more than 3 m from any road reserve: {sum(1 for d in gap if d > 3.0)}, of which 3 to 6 m (registration gap): {sum(1 for d in gap if 3.0 < d <= 6.0)}; "
+      f"more than 6 m (no street found): {len(far)} ({100*len(far)/len(PG):.1f}%)", far[:6])
 # landmarks
 names = Counter(pr["name"] for pr, _ in LG)
 print("- duplicate landmark names:", {k: v for k, v in names.items() if v > 1})
@@ -89,12 +92,32 @@ print("- very small landmark sites (< 400 m2):", small)
 offs = [(pr["name"], pr["kanal_official"], g.area / 505.857) for pr, g in LG if pr.get("kanal_official")]
 bad = [(n, k, round(m, 1)) for n, k, m in offs if abs(m - k) / k > 0.25]
 print(f"- facilities with an official area: {len(offs)}; more than 25% off: {len(bad)}", bad)
+# main gate
+gates = [f for f in lms if f["properties"]["kind"] == "gate"]
+mains = [tom(shape(f["geometry"])) for f in roads if f["properties"]["class"] == "main"]
+for f in gates:
+    gp = tom(shape(f["geometry"])); ds = sorted(m.distance(gp) for m in mains)[:2]
+    print(f"- main gate: {f['properties']['name']} at {f['geometry']['coordinates'][1]:.5f}, {f['geometry']['coordinates'][0]:.5f}; carriageway centre lines {ds[0]:.1f} m and {ds[1]:.1f} m either side, span {f['properties']['span']} m")
+if not gates: print("- main gate: MISSING")
+# plot outlines and buildings
+print("- plot outlines:", dict(Counter(p.get("layout") for p in PP)))
+try:
+    BL = D("buildings")
+except FileNotFoundError:
+    BL = []
+BG = [tom(shape(f["geometry"])) for f in BL]
+on_road = sum(1 for g in BG if sum(g.intersection(carr_parts[i]).area for i in STRtree(carr_parts).query(g)) > 0.35 * g.area) if BG else 0
+no_plot = sum(1 for f in BL if f["properties"].get("plot_id") is None)
+built = [p for p in PP if p["built"]]
+ids = {f["properties"].get("plot_id") for f in BL}
+print(f"- buildings standing today: {len(BL)} footprints; on a carriageway: {on_road}; not on any plot: {no_plot}; built plots: {len(built)}; built plots without a footprint: {sum(1 for p in built if p['id'] not in ids)}")
+print("  built plots per block:", dict(sorted(Counter(p["block"] for p in built).items())), "| development class:", dict(Counter(p["dev_class"] for p in PP)))
 # per block
 per = defaultdict(Counter)
 for p in PP: per[p["block"]][p["size"]] += 1
 for b in sorted(per): print("  ", b, dict(per[b]), "total", sum(per[b].values()))
 # uncovered land inside boundary
-other = [tom(shape(f["geometry"])) for f in blocks if f["properties"]["layer"] == "green" or f["properties"]["kind"] in ("median", "strip", "island", "greenbelt")]
+other = [tom(shape(f["geometry"])) for f in blocks if f["properties"]["layer"] in ("green", "open") or f["properties"]["kind"] in ("median", "strip", "island", "greenbelt")]
 cover = unary_union([row.buffer(0.1), nala.buffer(0.1)] + [g.buffer(0.7) for g in PG] + [g.buffer(0.7) for _, g in LG] + [g.buffer(0.7) for g in other])
 gaps = [q for q in (B.difference(cover).geoms if hasattr(B.difference(cover), "geoms") else [B.difference(cover)]) if q.area > 600 and q.buffer(-4).area > 200]
 print(f"- empty land patches > 600 m2 inside boundary (no plot, road or facility): {len(gaps)}, total {sum(q.area for q in gaps)/1e4:.1f} ha; largest {[round(q.area) for q in sorted(gaps, key=lambda q: -q.area)[:8]]}")

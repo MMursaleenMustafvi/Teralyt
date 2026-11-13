@@ -7,6 +7,12 @@ Sources (all in tools/source/):
                           (Advice Associates / fdacity.pk). Each map sheet has its own control
                           points; parks, schools, mosques, zones and named roads are given in
                           sheet pixels, with the official area in kanal where the map prints it.
+  * sheet_layout.json     plot cells read off the official block maps by tools/trace_plots.py
+                          (each sheet registered to the OpenStreetMap streets). Where the print is clear
+                          the plots are these official outlines; elsewhere the street block is split
+                          into plots of the official size.
+  * buildings_fda.geojson building footprints detected on satellite imagery (Google Open Buildings,
+                          Microsoft ML Buildings, via Overture Maps): which plots are built today.
   * the overall plan image is downloaded on first run into tools/source/cache/ (git-ignored);
     its colours give the plot size of every street block (blue 20, pink 10, green 5 Marla)
     and decide which land belongs to the society.
@@ -19,8 +25,8 @@ Rules the output must satisfy (checked by tools/audit.py):
   * every plot fronts a road (existing or a planned 40 ft street);
   * no bare land: whatever is not road, plot or facility becomes green open space.
 
-Everything derived from the plan is accuracy="approximate". Plot numbers, status,
-development class and heights are SAMPLE values with a fixed seed.
+Everything derived from the plan is accuracy="approximate". Built / vacant and the development
+class come from the building footprints; plot numbers, status and storeys are SAMPLE values.
 
 usage (from the repo root):  python -I tools/make_data.py [--preview out.png]
 needs: pip install shapely numpy pillow   (matplotlib for --preview)
@@ -39,6 +45,7 @@ from PIL import Image
 from shapely import affinity
 from shapely.geometry import LineString, MultiLineString, Point, Polygon, box
 from shapely.ops import linemerge, polygonize, unary_union
+from shapely.strtree import STRtree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -74,6 +81,10 @@ ROAD_NAME = {"divider_half": "85 ft road", "main": "Main Boulevard (202 ft)", "s
 ROUNDABOUT_ISLAND = {"big": 30.0, "small": 23.0}
 FOOTPATH = 0.6
 NALA_CH, NALA_BANK = 3.25, 8.25   # channel about 6.5 m wide (measured), earth banks either side
+STREET = 40 * FT                  # street reserve in front of plots read from the block maps
+# main gate: measured on Esri World Imagery (z19), drawn on the official Block A map across the Main Entrance Road
+GATE = {"lonlat": (73.06942, 31.50932), "span": 29.0}
+BUILT_SOURCE = "Building footprints detected on satellite imagery (Google Open Buildings 2023, Microsoft ML Buildings)"
 
 
 def ll(e, n):
@@ -238,6 +249,116 @@ class Plan:
         c = self.code[py[ok], px[ok]]
         cnt = np.bincount(c, minlength=5) / len(c)
         return {"n": int(len(c)), "bg": float(cnt[0]), "pink": float(cnt[1]), "green": float(cnt[2]), "blue": float(cnt[3]), "other": float(cnt[4])}
+
+
+def load_cells():
+    """Plot cells read from the official block maps (tools/trace_plots.py), in local metres."""
+    path = os.path.join(SRC, "sheet_layout.json")
+    if not os.path.exists(path):
+        print("no sheet_layout.json: run tools/trace_plots.py to read the plots off the official block maps")
+        return []
+    out = []
+    for name, sh in json.load(open(path, encoding="utf-8"))["sheets"].items():
+        for bi, b in enumerate(sh["blocks"]):
+            if len(b["cells"]) < 4:
+                continue                      # stray shapes (lettering, logos) never form a street block
+            for c in b["cells"]:
+                pg = Polygon([xy(*q) for q in c["ring"]])
+                if not pg.is_valid:
+                    pg = largest(pg.buffer(0))
+                if pg is None or pg.area < 60 or pg.area > 1700:
+                    continue
+                out.append({"poly": pg, "sheet": name, "group": (name, bi), "colour": c.get("colour"), "rect": c.get("rect", 1)})
+    return out
+
+
+class SheetInk:
+    """What the official block maps draw where: blank paper, or lines (plots, pictures)."""
+
+    def __init__(self):
+        self.sheets = []
+        self.streets = []
+        self.drawn = None
+        drawn = []
+        path = os.path.join(SRC, "sheet_layout.json")
+        if not os.path.exists(path):
+            return
+        for name, sh in json.load(open(path, encoding="utf-8"))["sheets"].items():
+            drawn += [clean(Polygon([xy(*q) for q in ring])) for ring in sh.get("drawn", [])]
+            for st in sh.get("streets", []):
+                if 8 <= st["width_m"] <= 22 and len(st["line"]) >= 2:
+                    ln = LineString([xy(*q) for q in st["line"]])
+                    if ln.length >= 20:
+                        self.streets.append((ln, st["width_m"]))
+            ink = sh.get("ink")
+            f = os.path.join(SRC, ink["file"]) if ink else None
+            if not f or not os.path.exists(f):
+                continue
+            A = np.array(sh["affine"])
+            inv = np.linalg.inv(np.vstack([A, [0, 0, 1]]))[:2]
+            self.sheets.append((name, inv, np.asarray(Image.open(f)).astype(np.float32) / 255, ink["block"], sh["size"]))
+        self.tree = STRtree([ln for ln, _ in self.streets]) if self.streets else None
+        if drawn:
+            self.drawn = clean(unary_union(drawn).buffer(3.0))      # everything the block maps draw
+
+    def sample(self, poly, step=5.0):
+        """(share of the polygon shown on some block map, share of that which carries drawing)."""
+        minx, miny, maxx, maxy = poly.bounds
+        xs, ys = np.meshgrid(np.arange(minx + step / 2, maxx, step), np.arange(miny + step / 2, maxy, step))
+        xs, ys = xs.ravel(), ys.ravel()
+        if len(xs):
+            ins = shapely.contains_xy(poly, xs, ys)
+            xs, ys = xs[ins], ys[ins]
+        if len(xs) < 3:
+            c = poly.representative_point()
+            xs, ys = np.array([c.x]), np.array([c.y])
+        seen = np.zeros(len(xs), bool)
+        ink = np.zeros(len(xs), np.float32)
+        for name, inv, img, blk, (W, H) in self.sheets:
+            px = inv[0, 0] * xs + inv[0, 1] * ys + inv[0, 2]
+            py = inv[1, 0] * xs + inv[1, 1] * ys + inv[1, 2]
+            ok = (px >= 12) & (px < W - 12) & (py >= 12) & (py < H - 12)
+            if not ok.any():
+                continue
+            i = np.clip((py[ok] / blk).astype(int), 0, img.shape[0] - 1)
+            j = np.clip((px[ok] / blk).astype(int), 0, img.shape[1] - 1)
+            # look a little around the point: registration is good to a few metres
+            v = img[i, j]
+            for di, dj in ((0, 1), (1, 0), (0, -1), (-1, 0)):
+                v = np.maximum(v, img[np.clip(i + di, 0, img.shape[0] - 1), np.clip(j + dj, 0, img.shape[1] - 1)])
+            seen[ok] = True
+            ink[ok] = np.maximum(ink[ok], v)
+        return float(seen.mean()), (float((ink[seen] > 0.06).mean()) if seen.any() else 0.0)
+
+    def streets_in(self, region):
+        """Street centre lines the block maps show inside a region."""
+        if self.tree is None:
+            return []
+        out = []
+        for i in self.tree.query(region):
+            ln, w = self.streets[i]
+            for part in lines_of(ln.intersection(region)):
+                if part.length >= 18:
+                    out.append((part, w))
+        return out
+
+
+def load_buildings():
+    path = os.path.join(SRC, "buildings_fda.geojson")
+    if not os.path.exists(path):
+        return []
+    out = []
+    for f in json.load(open(path, encoding="utf-8"))["features"]:
+        pg = Polygon([xy(*q) for q in f["geometry"]["coordinates"][0]])
+        if not pg.is_valid:
+            pg = largest(pg.buffer(0))
+        if pg is not None and pg.area >= 25:
+            out.append((pg, f["properties"]))
+    return out
+
+
+def size_by_area(a):
+    return "5 Marla" if a < 175 else "10 Marla" if a < 360 else "20 Marla"
 
 
 def direction_at(ref, pt):
@@ -485,6 +606,10 @@ def main():
     zones = [dict(z, poly=plan.geom(z)) for z in feats["zones"]]
     inside_zones = unary_union([z["poly"] for z in zones if not z.get("outside")])
 
+    cells = load_cells()
+    sheet_ink = SheetInk()
+    cell_pts = STRtree([c["poly"].representative_point() for c in cells]) if cells else None
+    blank = 0
     P = []
     for f in faces:
         land = f.difference(surf).difference(nala_zone)
@@ -530,8 +655,17 @@ def main():
                     smp = plan.sample(r)
                     plotted = smp["pink"] + smp["green"] + smp["blue"] + smp["other"]
                     in_zone = (not inside_zones.is_empty) and r.intersection(inside_zones).area > 0.3 * r.area
-                    if (not in_zone and (plotted < 0.42 or smp["bg"] > 0.55)) or beyond_f_strip(cen):
+                    n_cells = len(cell_pts.query(r, predicate="contains")) if cell_pts is not None else 0
+                    seen, inked = sheet_ink.sample(r)
+                    if n_cells >= 4 and n_cells * 120 > 0.12 * r.area and not beyond_f_strip(cen):
+                        pass                                   # the block map fills this land with plots
+                    elif (not in_zone and (plotted < 0.42 or smp["bg"] > 0.55)) or beyond_f_strip(cen):
                         k2 = "outside"
+                    elif not in_zone and sheet_ink.sheets and seen * inked < 0.15:
+                        k2 = "outside"                         # blank on, or beyond, every block map
+                        blank += 1
+                    if k2 == "outside":
+                        pass
                     elif inner is None or inner.buffer(-5.0).is_empty:
                         k2 = "greenbelt"
                     else:
@@ -541,8 +675,54 @@ def main():
                 P.append({"land": r, "inner": inner if k2 in ("parcel", "greenbelt") else None, "kind": k2, "c": cen, "blk": block_m(cen),
                           "area": r.area, "size": size, "free": inner if k2 == "parcel" else None,
                           "angle": obb(inner)["angle"] if (k2 == "parcel" and inner is not None) else 0})
-    print("land:", dict(Counter(p["kind"] for p in P)))
+    print("land:", dict(Counter(p["kind"] for p in P)), f"| {blank} pieces left out because no block map draws anything there")
     parcels = [p for p in P if p["kind"] == "parcel"]
+
+    # ---- plot cells from the official block maps ------------------------------------------------
+    raw_sites = [z["poly"] for z in zones] + [plan.geom(f) for f in feats["facilities"]] + [plan.geom(pk) for pk in feats["parks"]]
+    raw_u = unary_union([clean(q).buffer(-1.5) for q in raw_sites])
+    with_free = [p for p in parcels if p["free"] is not None]
+    ptree = STRtree([p["free"] for p in with_free])
+    cand = []
+    why = Counter()
+    for c in cells:
+        cen = c["poly"].representative_point()
+        if not env.contains(cen):
+            why["outside the plan area"] += 1
+            continue
+        if raw_u.contains(cen):
+            why["inside a facility picture"] += 1
+            continue
+        best, ba = None, 0
+        for i in ptree.query(c["poly"]):
+            a = with_free[i]["free"].intersection(c["poly"]).area
+            if a > ba:
+                best, ba = with_free[i], a
+        if best is None or ba < 0.55 * c["poly"].area:
+            why["on a road or outside society land"] += 1
+            continue
+        c["p"] = best
+        c["own"] = block_m(cen) == c["sheet"]
+        cand.append(c)
+    cand.sort(key=lambda c: (not c["own"], -c["rect"]))          # neighbouring sheets repeat the edge plots
+    ctree = STRtree([c["poly"] for c in cand])
+    taken = [False] * len(cand)
+    for i, c in enumerate(cand):
+        clash = any(taken[j] and cand[j]["poly"].intersection(c["poly"]).area > 0.2 * min(c["poly"].area, cand[j]["poly"].area)
+                    for j in ctree.query(c["poly"]) if j != i)
+        if clash:
+            why["repeated on a neighbouring sheet"] += 1
+            continue
+        taken[i] = True
+        c["p"].setdefault("cells", []).append(c)
+    for p in parcels:
+        if p.get("cells"):
+            p["cells_u"] = unary_union([c["poly"] for c in p["cells"]])
+    print(f"plot cells from the block maps: {len(cells)} read, {sum(taken)} placed; left out: {dict(why)}")
+
+    def avail(p):
+        """Land a facility may take: free land that the block maps do not show as plots."""
+        return p["free"].difference(p["cells_u"]) if p.get("cells_u") is not None else p["free"]
 
     # ---- landmarks (carved out of parcels) -------------------------------------------------------
     landmarks = []
@@ -567,15 +747,16 @@ def main():
         cand = None
         if kanal:                            # match the area printed on the official map
             target = kanal * KANAL
-            cand = [p for p in parcels if p["free"] is not None and p["free"].intersects(poly) and p["free"].intersection(poly).area > 20]
-            if cand and sum(p["free"].area for p in cand) <= target * 1.08:
-                poly = unary_union([p["free"] for p in cand]).buffer(1)
+            cand = [p for p in parcels if p["free"] is not None and p["free"].intersects(poly) and avail(p).intersection(poly).area > 20]
+            av = {id(p): avail(p) for p in cand}
+            if cand and sum(av[id(p)].area for p in cand) <= target * 1.08:
+                poly = unary_union([av[id(p)] for p in cand]).buffer(1)
             elif cand:
                 lo_s, hi_s = 0.4, 3.0
                 for _ in range(16):
                     mid = (lo_s + hi_s) / 2
                     sc = affinity.scale(poly, mid, mid, origin=poly.centroid)
-                    if sum(p["free"].intersection(sc).area for p in cand) < target:
+                    if sum(av[id(p)].intersection(sc).area for p in cand) < target:
                         lo_s = mid
                     else:
                         hi_s = mid
@@ -585,11 +766,12 @@ def main():
         for p in (cand if cand is not None else parcels):
             if p["free"] is None or not p["free"].intersects(poly):
                 continue
-            part = p["free"].intersection(poly)
+            pa = avail(p)
+            part = pa.intersection(poly)
             if part.area < 20:
                 continue
-            whole = part.area > whole_frac * p["free"].area
-            got.append((p, p["free"] if whole else part, whole))
+            whole = part.area > whole_frac * pa.area
+            got.append((p, pa if whole else part, whole))
         if not got:
             return None
         site = largest(unary_union([g for _, g, _ in got]))
@@ -598,7 +780,7 @@ def main():
         for p, g, whole in got:
             if g.intersection(site).area < 0.5 * g.area:
                 continue                      # this piece is not part of the site: leave its parcel untouched
-            if whole:
+            if whole and not p.get("cells"):
                 p["free"] = None
             else:
                 rest = p["free"].difference(site.buffer(1.0, join_style=2))
@@ -629,6 +811,20 @@ def main():
     for n_, r in enumerate(rbs):
         add_lm(r["c"].buffer(r["ri"], 64), "roundabout", f"Roundabout {n_ + 1}", None, None,
                {"radius": round(r["ri"], 1), "ring_width": round(r["ro"] - r["ri"], 1), "monument": designs[n_ % len(designs)]})
+    # main gate across the Main Entrance Road (a point feature: the 3D view builds the gate from heading and span)
+    gp = Point(*xy(*GATE["lonlat"]))
+    g2 = sorted(main_lines, key=lambda m: m.distance(gp))[:2]
+    gl = g2[0]
+    ent_pair = None
+    if len(g2) == 2 and g2[1].distance(gp) < 30:          # centre the gate between the two carriageways
+        ent_pair = (g2[0], g2[1])
+        qa, qb = g2[0].interpolate(g2[0].project(gp)), g2[1].interpolate(g2[1].project(gp))
+        gp = Point((qa.x + qb.x) / 2, (qa.y + qb.y) / 2)
+        GATE["span"] = round(math.dist((qa.x, qa.y), (qb.x, qb.y)) + WIDTH["main"] + 2.5, 1)
+    gv = direction_at(gl, gp)
+    gate_feat = feature(gp, {"id": 0, "kind": "gate", "name": "FDA City Main Gate", "block": None, "area_kanal": None, "proposed": False,
+                             "heading": round(math.degrees(math.atan2(gv[1], gv[0])), 1), "span": GATE["span"], "accuracy": "georeferenced",
+                             "source": "Official Block A map (Main Entrance Road); position and span measured on satellite imagery"})
     # the official maps repeat some park names (E-3, E-5, C-4): tell them apart by position
     by_name = {}
     for f in landmarks:
@@ -666,76 +862,224 @@ def main():
     print(f"society outline: {outline.area/1e6:.2f} km2")
 
     # ---- plots ---------------------------------------------------------------------------------
-    plot_geo, planned_streets, planned_lines, greens = [], [], [], []
+    # 1. official outlines: the plot cells read from the block maps, kept where they lie on free society land
+    # 2. elsewhere: the street block is split into plots of the official size (planned 40 ft streets where needed)
+    plot_geo, planned_streets, planned_lines, greens = [], [], [], []     # plot_geo: (polygon, size, layout)
+    sheet_streets, sheet_lines, todo, unplotted = [], [], [], []
+    cell_blocks = []
+    lost = 0
     for p in sorted(parcels, key=lambda p: (p["blk"], -round(p["c"].y / 40), p["c"].x)):
         if p["free"] is None or not outline.buffer(3).contains(p["land"]):
             continue
-        for region in polys(p["free"]):
-            if region.area < 100:
-                greens.append(region)
+        free = p["free"]
+        acc = []
+        for c in p.get("cells", []):
+            g = largest(c["poly"].intersection(free))
+            if g is None or g.area < 0.55 * c["poly"].area:
+                lost += 1
                 continue
-            size = p["size"] or "10 Marla"
-            side = None
-            if main_u.distance(region) < 30:                # one row of commercial plots faces the boulevard
-                nearest = min(main_lines, key=lambda m: m.distance(region))
-                v = direction_at(nearest, region.centroid)
-                a = math.radians(p["angle"])
-                if abs(v[0] * math.cos(a) + v[1] * math.sin(a)) > 0.9:
-                    c = region.centroid
-                    rot = affinity.rotate(region, -p["angle"], origin=c)
-                    _, miny, _, maxy = rot.bounds
-                    lo_pt = affinity.rotate(Point(rot.centroid.x, miny), p["angle"], origin=c)
-                    hi_pt = affinity.rotate(Point(rot.centroid.x, maxy), p["angle"], origin=c)
-                    side = "lo" if main_u.distance(lo_pt) < main_u.distance(hi_pt) else "hi"
-            plots, streets, lines = subdivide(region, p["angle"], size, side)
-            planned_streets += streets
-            planned_lines += lines
-            plot_geo += [(pg, sz) for pg, sz in plots]
-            used = unary_union([pg.buffer(0.05) for pg, _ in plots] + [s.buffer(0.05) for s in streets]) if (plots or streets) else None
-            rest = region.difference(used) if used is not None else region
-            greens += [q for q in polys(rest) if q.area > 25 and not q.buffer(-0.8).is_empty]
+            acc.append([clean(g), c])
+        if acc:
+            # neighbours must not overlap: a later cell gives way
+            tr = STRtree([g for g, _ in acc])
+            for i, (g, c) in enumerate(acc):
+                for j in tr.query(g):
+                    if j < i and acc[j][0] is not None and g is not None and g.intersection(acc[j][0]).area > 0.02:
+                        g = largest(g.difference(acc[j][0].buffer(0.02)))
+                acc[i][0] = g if (g is not None and g.area >= 0.5 * c["poly"].area) else None
+            acc = [(g, c) for g, c in acc if g is not None]
+        blocks_u = None
+        if acc:
+            blocks_u = clean(unary_union([g.buffer(1.0, join_style=2) for g, _ in acc]).buffer(-1.0, join_style=2))
+            keep = [q for q in polys(blocks_u) if sum(1 for g, _ in acc if q.contains(g.representative_point())) >= 4]
+            blocks_u = unary_union(keep) if keep else None
+            acc = [(g, c) for g, c in acc if blocks_u is not None and blocks_u.contains(g.representative_point())]
+        if acc:
+            for g, c in acc:
+                near_main = main_u.distance(g) < 45
+                sz = "Commercial" if (c["colour"] == "Commercial" and near_main and g.area < 330) else size_by_area(g.area)
+                plot_geo.append((g, sz, "official"))
+            # plots the print did not let us read: holes and notches of a block that have the size of a plot
+            closed = clean(blocks_u.buffer(5.0, join_style=2).buffer(-5.0, join_style=2)).intersection(free)
+            for h in polys(closed.difference(blocks_u.buffer(0.05))):
+                if 70 <= h.area <= 800 and h.area / h.minimum_rotated_rectangle.area > 0.72 and not h.buffer(-2.5).is_empty:
+                    plot_geo.append((clean(h.buffer(-0.05)), size_by_area(h.area), "official"))
+                    blocks_u = blocks_u.union(h)
+            cell_blocks.append(blocks_u)
+            rest = free.difference(blocks_u.buffer(STREET + 0.4, join_style=2))
+        else:
+            rest = free
+        todo_regions = []
+        for region in polys(rest):
+            if region.area < 100:
+                if not acc:
+                    greens.append(region)
+                continue
+            if acc and (region.area < 500 or region.buffer(-6.5).is_empty):
+                greens.append(region)                       # a strip too thin for plots
+                continue
+            if sheet_ink.drawn is not None:                 # no plots where every block map is blank
+                part = clean(region.intersection(sheet_ink.drawn).buffer(-4.0, join_style=2).buffer(4.0, join_style=2)).intersection(region)
+                blank_part = region.difference(part)
+                if blank_part.area > 0.1 * region.area:
+                    unplotted.extend(q for q in polys(blank_part) if q.area > 60)
+                    for q in polys(part):
+                        if q.area >= 500 and not q.buffer(-6.5).is_empty:
+                            todo_regions.append(q)
+                    continue
+            todo_regions.append(region)
+        for region in todo_regions:
+            # streets the block map shows through this land split it into its street blocks
+            sl = sheet_ink.streets_in(region.buffer(-1.0)) if region.area > 1500 else []
+            if sl:
+                cut = unary_union([ln.buffer(STREET / 2, cap_style=2, join_style=2) for ln, _ in sl])
+                pieces = [q for q in polys(region.difference(cut)) if q.area >= 100 and not q.buffer(-3.0).is_empty]
+                if len(pieces) >= 2:
+                    sheet_streets.append(region.intersection(cut))
+                    sheet_lines.extend(ln for ln, _ in sl)
+                    todo += [(q, p, True) for q in pieces]
+                    continue
+            todo.append((region, p, bool(acc)))
+    for region, p, own_axis in todo:
+        size = p["size"] or "10 Marla"
+        angle = obb(region)["angle"] if own_axis else p["angle"]
+        side = None
+        if main_u.distance(region) < 30:                # one row of commercial plots faces the boulevard
+            nearest = min(main_lines, key=lambda m: m.distance(region))
+            v = direction_at(nearest, region.centroid)
+            a = math.radians(angle)
+            if abs(v[0] * math.cos(a) + v[1] * math.sin(a)) > 0.9:
+                c = region.centroid
+                rot = affinity.rotate(region, -angle, origin=c)
+                _, miny, _, maxy = rot.bounds
+                lo_pt = affinity.rotate(Point(rot.centroid.x, miny), angle, origin=c)
+                hi_pt = affinity.rotate(Point(rot.centroid.x, maxy), angle, origin=c)
+                side = "lo" if main_u.distance(lo_pt) < main_u.distance(hi_pt) else "hi"
+        plots, streets, lines = subdivide(region, angle, size, side)
+        planned_streets += streets
+        planned_lines += lines
+        plot_geo += [(pg, sz, "generated") for pg, sz in plots]
+        used = unary_union([pg.buffer(0.05) for pg, _ in plots] + [s.buffer(0.05) for s in streets]) if (plots or streets) else None
+        rest2 = region.difference(used) if used is not None else region
+        greens += [q for q in polys(rest2) if q.area > 25 and not q.buffer(-0.8).is_empty]
+
+    # streets in front of the plots read from the block maps, where OpenStreetMap has no street yet:
+    # every block of official plots is surrounded by a 40 ft reserve; its middle 5 m is the carriageway
+    site_u = unary_union([Polygon([xy(*c) for c in f["geometry"]["coordinates"][0]]).buffer(0.5) for f in landmarks])
+    gen_u = unary_union([pg.buffer(0.3) for pg, _, lay in plot_geo if lay == "generated"] + planned_streets) if plot_geo else None
+    new_reserve = new_carriage = None
+    res_parts, car_parts = [], []
+    if cell_blocks:
+        cb = clean(unary_union(cell_blocks))
+        ring = cb.buffer(STREET, join_style=2, mitre_limit=1.6).difference(cb.buffer(0.01)).intersection(outline)
+        ring = clean(ring.difference(site_u).difference(nala_zone))
+        if gen_u is not None:
+            ring = clean(ring.difference(gen_u))
+        strip = clean(ring.buffer(-(STREET - WIDTH["residential"]) / 2, join_style=2, mitre_limit=1.6))
+        fresh = [q for q in polys(strip.difference(carriage.buffer(2.6))) if q.area > 120]
+        if fresh:
+            c_new = clean(unary_union(fresh).buffer(2.8).intersection(strip))
+            car_parts.append(c_new)
+            res_parts.append(clean(ring.intersection(c_new.buffer((STREET - WIDTH["residential"]) / 2 + 0.2))))
+    if sheet_streets:                        # streets the block maps show through land without readable plots
+        su = clean(unary_union(sheet_streets))
+        res_parts.append(su)
+        car_parts.append(clean(unary_union([ln.buffer(WIDTH["residential"] / 2, cap_style=2, join_style=2) for ln in sheet_lines]).intersection(su)))
+    if car_parts:
+        new_carriage = clean(unary_union(car_parts))
+        new_reserve = clean(unary_union(res_parts))
+        print(f"streets shown on the block maps but not in OpenStreetMap: about {new_carriage.area / WIDTH['residential'] / 1000:.1f} km of carriageway")
     # every plot must front a road
-    access = unary_union([surf, reserve] + planned_streets).buffer(FOOTPATH + 2.2)
-    kept = [(pg, sz) for pg, sz in plot_geo if pg.intersects(access)]
-    greens += [pg for pg, sz in plot_geo if not pg.intersects(access)]
-    print(f"plots: {len(kept)} kept, {len(plot_geo) - len(kept)} without road frontage turned into green space; planned 40 ft street pieces: {len(planned_streets)}")
+    access = unary_union([surf, reserve] + planned_streets + ([new_reserve] if new_reserve is not None else [])).buffer(FOOTPATH + 2.2)
+    kept = [(pg, sz, lay) for pg, sz, lay in plot_geo if lay == "official" or pg.intersects(access)]
+    greens += [pg for pg, sz, lay in plot_geo if lay != "official" and not pg.intersects(access)]
+    n_off = sum(1 for _, _, lay in kept if lay == "official")
+    print(f"plots: {len(kept)} ({n_off} official outlines from the block maps, {len(kept) - n_off} generated in street blocks the print does not resolve); "
+          f"{len(plot_geo) - len(kept)} without road frontage turned into green space; {lost} cells cut by a road dropped; planned 40 ft street pieces: {len(planned_streets)}")
+
+    # ---- buildings standing today (footprints detected on satellite imagery) -------------------------
+    bld = [(g, pr) for g, pr in load_buildings() if outline.contains(g.representative_point())]
+    kept.sort(key=lambda t: (block_m(t[0].centroid), -round(t[0].centroid.y / 40), t[0].centroid.x))
+    ktree = STRtree([pg for pg, _, _ in kept])
+    built_on = {}
+    bfeats = []
+    road_all = unary_union([carriage] + ([new_carriage] if new_carriage is not None else [])
+                           + [clean(q.buffer(-(ROW["planned"] - WIDTH["planned"]) / 2, join_style=2)) for q in planned_streets])
+    n_road = 0
+    btaken = []
+    for g, pr in sorted(bld, key=lambda t: -t[0].area):
+        if any(g.intersection(o).area > 0.5 * g.area for o in btaken if o.intersects(g)):
+            continue                                        # the same building in both datasets
+        if g.intersection(road_all).area > 0.35 * g.area:
+            n_road += 1                                     # on a mapped road: stale footprint, or the street is drawn a little off
+            continue
+        if site_u.contains(g.representative_point()):
+            continue                                        # inside a facility site: drawn by that site's own model
+        best, ba = None, 0
+        for i in ktree.query(g):
+            a = kept[i][0].intersection(g).area
+            if a > ba:
+                best, ba = i, a
+        on = int(best) if (best is not None and ba >= max(20.0, 0.1 * kept[best][0].area)) else None
+        btaken.append(g)
+        mrr = obb(g)
+        storeys = 1 if g.area < 70 else 2 if g.area < 420 else 3
+        if on is not None:
+            built_on.setdefault(on, []).append(len(bfeats))
+        bfeats.append((g, {"id": len(bfeats) + 1, "plot_index": on, "area_m2": round(g.area), "storeys": storeys, "height": round(3.5 * storeys, 1), "height_source": "assumed",
+                           "obb": mrr, "dataset": pr.get("dataset"), "source": BUILT_SOURCE, "accuracy": "georeferenced"}))
+    print(f"buildings standing today: {len(bfeats)} footprints, on {len(built_on)} plots; {n_road} footprints left out because they lie on a mapped road")
+    # development around each plot: share of built plots within 150 m
+    cen = np.array([[pg.centroid.x, pg.centroid.y] for pg, _, _ in kept]) if kept else np.zeros((0, 2))
+    is_built = np.array([i in built_on for i in range(len(kept))])
+    share = np.zeros(len(kept))
+    if len(kept):
+        gx, gy = np.floor(cen[:, 0] / 150).astype(int), np.floor(cen[:, 1] / 150).astype(int)
+        buckets = {}
+        for i, key in enumerate(zip(gx, gy)):
+            buckets.setdefault(key, []).append(i)
+        for i in range(len(kept)):
+            idx = [j for dx in (-1, 0, 1) for dy in (-1, 0, 1) for j in buckets.get((gx[i] + dx, gy[i] + dy), [])]
+            d = np.hypot(cen[idx, 0] - cen[i, 0], cen[idx, 1] - cen[i, 1]) < 150
+            share[i] = is_built[np.array(idx)[d]].mean()
 
     plot_feats = []
     counters = Counter()
-    for pid, (pg, sz) in enumerate(kept, 1):
+    for i, (pg, sz, lay) in enumerate(kept):
+        pid = i + 1
         pg = clean(pg.simplify(0.05))
         blk = block_m(pg.centroid)
         counters[blk] += 1
         key = (blk, counters[blk])
         ptype = "Commercial" if sz == "Commercial" else "Residential"
         cx, cy = pg.centroid.x, pg.centroid.y
-        d_main = main_u.distance(pg.centroid)
-        noise = 0.5 * math.sin(cx / 230 + 1.3) * math.cos(cy / 260 - 0.4) + 0.5 * math.sin((cx + cy) / 410)
-        dev = 0.98 - min(d_main, 1400) / 1400 * 0.9 + 0.26 * noise + (h01("dev", *key) - 0.5) * 0.3
-        dev_class = "High" if dev > 0.68 else "Medium" if dev > 0.36 else "Low"
+        built = bool(is_built[i])
+        dev_class = "High" if share[i] >= 0.30 else "Medium" if share[i] >= 0.08 else "Low"
         r = h01("status", *key)
-        status = "Sold" if r < 0.42 else "Available" if r < 0.72 else "Reserved" if r < 0.85 else "Unknown"
-        built_p = 0.92 if dev_class == "High" else 0.55 if dev_class == "Medium" else 0.18
-        if status == "Available":
-            built_p *= 0.3
-        built = h01("built", *key) < built_p
+        status = "Sold" if (built or r < 0.42) else "Available" if r < 0.72 else "Reserved" if r < 0.85 else "Unknown"
         if built:
-            s = h01("storeys", *key)
-            storeys = 3 if (s < 0.18 or ptype == "Commercial") else 2 if s < 0.6 else 1
+            storeys = max(bfeats[b][1]["storeys"] for b in built_on[i])
             height = 3.5 * storeys
         else:
             storeys, height = 0, 0.4
-        src = "Not recorded" if status == "Unknown" else ["Society record", "Developer record", "Transaction record"][int(h01("src", *key) * 3)]
-        conf = "Low" if status == "Unknown" else ["High", "High", "Medium"][int(h01("conf", *key) * 3)]
         lon, lat = ll(cx, cy)
         plot_feats.append(feature(pg, {
             "id": pid, "plot_no": f"{blk}-{counters[blk]}", "block": "Block " + blk,
             "size": sz, "type": ptype, "status": status, "dev_class": dev_class,
             "built": built, "storeys": storeys, "height": round(height, 1), "height_source": "assumed",
-            "source": src, "confidence": conf, "lat": lat, "lon": lon,
-            "area_m2": round(pg.area), "accuracy": "approximate"}))
+            "built_source": BUILT_SOURCE, "built_share_150m": round(float(share[i]), 2),
+            "source": "Sample value (no society record yet)", "confidence": "Low", "lat": lat, "lon": lon,
+            "area_m2": round(pg.area), "layout": "Official block map" if lay == "official" else "Generated in the street block",
+            "accuracy": "georeferenced" if lay == "official" else "approximate"}))
+    for g, pr in bfeats:
+        if pr["plot_index"] is not None:
+            pr["plot_id"] = pr["plot_index"] + 1
+            pr["plot_no"] = plot_feats[pr["plot_index"]]["properties"]["plot_no"]
+        del pr["plot_index"]
     print(f"plots per block: {dict(sorted(counters.items()))}")
     print("sizes:", dict(Counter(f["properties"]["size"] for f in plot_feats)))
+    print("built plots per block:", dict(sorted(Counter(f["properties"]["block"][-1] for f in plot_feats if f["properties"]["built"]).items())),
+          "| development class:", dict(Counter(f["properties"]["dev_class"] for f in plot_feats)))
 
     # ---- water ------------------------------------------------------------------------------
     water = []
@@ -773,8 +1117,9 @@ def main():
     write(out, "boundary", [feature(outline, bprops)])
     road_feats = []
     clip = outline.buffer(60)
+    clip_main = outline.buffer(1500)             # the Main Entrance Road runs on to the gate, outside the outline
     for d in roads:
-        for part in lines_of(d["line"].intersection(clip)):
+        for part in lines_of(d["line"].intersection(clip_main if d["cls"] == "main" else clip)):
             if part.length < 5:
                 continue
             road_feats.append(feature(part, {"osm_id": d["id"], "name": d["name"] or ROAD_NAME.get(d["cls"]), "class": d["cls"],
@@ -785,13 +1130,25 @@ def main():
         if l.length > 8:
             road_feats.append(feature(l, {"osm_id": None, "name": ROAD_NAME["planned"], "class": "residential", "width_m": WIDTH["planned"], "official_ft": 40,
                                           "oneway": False, "planned": True, "source": "Planned street (not in OpenStreetMap yet)", "accuracy": "approximate"}))
+    seen_l = set()
+    for l in sheet_lines:
+        k = (round(l.coords[0][0]), round(l.coords[0][1]), round(l.coords[-1][0]), round(l.coords[-1][1]))
+        if k in seen_l or l.length < 18:
+            continue
+        seen_l.add(k)
+        road_feats.append(feature(l, {"osm_id": None, "name": ROAD_NAME["residential"], "class": "residential", "width_m": WIDTH["residential"], "official_ft": 40,
+                                      "oneway": False, "planned": False, "source": "Official block map", "accuracy": "approximate"}))
     write(out, "roads", road_feats)
     planned_carriage = [clean(q.buffer(-(ROW["planned"] - WIDTH["planned"]) / 2, join_style=2)) for q in planned_streets]
     box_o = outline.buffer(1.0)
-    inner_carriage = clean(unary_union([carriage.intersection(box_o)] + [q for q in planned_carriage if not q.is_empty]))
-    inner_row = clean(unary_union([surf.intersection(box_o), reserve.intersection(box_o)] + planned_streets))
+    extra_c = [new_carriage] if new_carriage is not None else []
+    extra_r = [new_reserve] if new_reserve is not None else []
+    inner_carriage = clean(unary_union([carriage.intersection(box_o)] + [q for q in planned_carriage if not q.is_empty] + extra_c))
+    inner_row = clean(unary_union([surf.intersection(box_o), reserve.intersection(box_o)] + planned_streets + extra_r))
     medians = unary_union([p["land"] for p in P if p["kind"] in ("median", "strip", "island")])
     verge = clean(inner_row.difference(inner_carriage.buffer(0.05)).difference(medians.buffer(0.05)).difference(nala.buffer(NALA_CH + 0.5)))
+    official_u = unary_union([pg.buffer(0.1) for pg, _, lay in kept if lay == "official"])
+    verge = clean(verge.difference(official_u))            # a plot drawn on the block map wins over the verge beside it
     write(out, "road_surface",
           [feature(clean(q.simplify(0.2)), {"kind": "carriageway", "accuracy": "approximate", "source": "widths measured on satellite imagery"}) for q in polys(inner_carriage) if q.area > 20]
           + [feature(clean(q.simplify(0.2)), {"kind": "verge", "accuracy": "approximate"}) for q in polys(verge) if q.area > 6])
@@ -805,9 +1162,15 @@ def main():
         if p["kind"] == "outside":
             continue
         use = "plots" if p["kind"] == "parcel" else p["kind"]
-        land_feats.append(feature(p["land"], {"layer": "land", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "size": p["size"], "area_m2": round(p["area"]), "accuracy": "approximate"}))
-        if p["inner"] is not None:
-            land_feats.append(feature(clean(p["inner"].simplify(0.2)), {"layer": "inner", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "accuracy": "approximate"}))
+        lands, inners = [p["land"]], ([p["inner"]] if p["inner"] is not None else [])
+        if new_reserve is not None and p["kind"] == "parcel" and p["land"].intersects(new_reserve):
+            # streets from the block maps run through this piece of land: cut their reserve out of it
+            lands = [q for q in polys(clean(p["land"].difference(new_reserve))) if q.area > 30]
+            inners = [q for q in polys(clean(p["inner"].difference(new_reserve.buffer(FOOTPATH)))) if q.area > 25] if p["inner"] is not None else []
+        for q in lands:
+            land_feats.append(feature(clean(q.simplify(0.2)) if len(lands) > 1 else q, {"layer": "land", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "size": p["size"], "area_m2": round(q.area), "accuracy": "approximate"}))
+        for q in inners:
+            land_feats.append(feature(clean(q.simplify(0.2)), {"layer": "inner", "kind": p["kind"], "use": use, "block": "Block " + p["blk"], "accuracy": "approximate"}))
     for p in P:                      # land enclosed by the society that the plan leaves blank
         if p["kind"] == "outside" and outline.buffer(-2).contains(p["land"]):
             greens.append(p["land"])
@@ -815,13 +1178,34 @@ def main():
         for r in polys(clean(q.simplify(0.15))):
             if r.area > 20:
                 land_feats.append(feature(r, {"layer": "green", "kind": "green", "use": "open space", "area_m2": round(r.area), "accuracy": "approximate"}))
+    # planted median of the Main Entrance Road between the society outline and the gate
+    if ent_pair is not None:
+        la, lb = ent_pair
+        ca, cb = list(la.coords), list(lb.coords)
+        if math.dist(ca[-1], cb[0]) > math.dist(ca[-1], cb[-1]):
+            cb = cb[::-1]                       # the two one-way lines run in opposite directions
+        between = clean(Polygon(ca + cb))
+        half = WIDTH["main"] / 2
+        med = between.difference(unary_union([l.buffer(half + 0.3, cap_style=2, join_style=2) for l in (la, lb)])).difference(outline.buffer(2))
+        for q in polys(clean(med.buffer(-0.3))):
+            if q.area > 150 and not q.buffer(-1.0).is_empty:
+                land_feats.append(feature(clean(q.simplify(0.2)), {"layer": "land", "kind": "median", "use": "median", "block": None, "size": None, "area_m2": round(q.area), "accuracy": "approximate", "outside": True}))
+    for q in unplotted:              # society land that no block map draws anything on
+        for r in polys(clean(q.simplify(0.3))):
+            if r.area > 60:
+                land_feats.append(feature(r, {"layer": "open", "kind": "open", "use": "not plotted on the official block maps", "area_m2": round(r.area), "accuracy": "approximate"}))
     write(out, "blocks", land_feats)
-    write(out, "landmarks", landmarks)
+    gate_feat["properties"]["id"] = len(landmarks) + 1
+    write(out, "landmarks", landmarks + [gate_feat])
+    write(out, "buildings", [feature(clean(g.simplify(0.15)), pr) for g, pr in bfeats],
+          {"data_note": "Buildings standing today: footprints detected on satellite imagery (Google Open Buildings, Microsoft ML Buildings, via Overture Maps). Heights are assumed."})
     write(out, "water", water)
     write(out, "parks", [f for f in landmarks if f["geometry"]["type"] == "Polygon" and f["properties"]["kind"] != "roundabout"]
           + [dict(f, properties=dict(f["properties"], kind="nala", name="Barani Nala")) for f in water if f["properties"]["kind"] == "nala_water"])
     write(out, "context", [feature(Point(*plan.to_m(*c["px"])), {"name": c["name"], "kind": "context"}) for c in feats["context_labels"]])
-    write(out, "plots", plot_feats, {"data_note": "Plot outlines follow the street blocks of the official plan and OpenStreetMap; plot attributes are generated samples (accuracy=approximate)."})
+    write(out, "plots", plot_feats, {"data_note": "layout = 'Official block map': outline read from the official FDA City block map and registered to the real streets. "
+                                                  "layout = 'Generated in the street block': the print does not resolve single plots there, the street block is split into plots of the official size. "
+                                                  "built and dev_class come from building footprints detected on satellite imagery; plot numbers, status and storeys are sample values."})
 
     if args.preview:
         preview(args.preview, outline, P, landmarks, plot_feats, road_feats, nala, plan, greens, planned_streets)
