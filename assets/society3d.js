@@ -352,7 +352,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         along(l.pts, 36, 8, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 1.4), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); } });
         along(l.pts, 18, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 2.8), px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 18) % 3) trees.round.push([px, Y.verge, -py, .85]); } });
       } else if (cls === 'main') {
-        stripe(l.pts, w / 6, 3, 6, .15); stripe(l.pts, -w / 6, 3, 6, .15);
+        // the boulevard carriageways (about 11 m) have no painted lanes on site (Google, zoom 20): edge lines only
         stripe(l.pts, w / 2 - .45, 1, 0, .2); stripe(l.pts, -(w / 2 - .45), 1, 0, .2);
         along(l.pts, 34, 6, (x, y, ux, uy) => {
           for (const s of [1, -1]) {
@@ -676,7 +676,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       const n = Math.floor(pa.len / (pa.main ? 45 : 110));
       for (let i = 0; i < n; i++) {
         const dir = (pa.main || pa.oneway) ? 1 : (r() < .5 ? 1 : -1);
-        const lane = pa.main ? [-1, 0, 1][(r() * 3) | 0] * pa.w / 3 : pa.oneway ? (r() < .5 ? -1 : 1) * pa.w / 4 : -dir * pa.w / 4;
+        const lane = pa.main ? (r() < .5 ? -1 : 1) * pa.w / 4 : pa.oneway ? (r() < .5 ? -1 : 1) * pa.w / 4 : -dir * pa.w / 4;
         cars.push({ pa, s: r() * pa.len, v: (pa.main ? 11 : 8) + r() * 5, dir, lane });
       }
     }

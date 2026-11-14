@@ -180,6 +180,15 @@ Browser test (headless Chrome, software rendering): page loads; 13,059 plots and
 
 Google check: each block's plots were drawn over Google satellite (zoom 19): plots lie between the real roads and built plots hold their house. Google and Esri imagery agree to about 1.2 m here.
 
+### Fixes of 15 November 2026 (Taha's screenshots: jagged plots, stray road stubs, roads off the asphalt, 6-lane boulevard)
+
+- **Jagged plot edges**: the printed number and the red emap.pk watermark bite notches out of plan outlines. Each outline is now filled out to its own hull wherever no neighbouring plot is there (`EmapPlan.cells`). Notched plots: 277 -> 36.
+- **Stray road stubs** in medians and verges: plan streets that run inside a main road's corridor, or are short pieces that do not join two roads, are dropped; streets end square, not rounded. Two OSM streets side by side (one on the plan's street, one 5 m off) no longer happen: OSM residential streets are moved onto the plan's street space (`align_to_plan`, 336 streets, median 1 m).
+- **Main roads on the real asphalt**: `tools/align_roads.py` measures each main OSM way's sideways offset on Google satellite (zoom 19) and writes `tools/source/road_offsets.json`; `make_data.py` applies it (37 ways, median 1.5 m, max 4.8 m). Esri's photo here is too hazy for this.
+- **Boulevard lanes**: on Google (zoom 20) each boulevard carriageway is about 11 m of asphalt with no painted lane lines, and service roads are separate on both sides. The 3D model no longer paints 3 lanes per side (edge lines only); traffic uses two lanes per side.
+- **Park C-3** is placed on the triangle the newer plan names "Park C-3" (the old sheet put it on a sliver); "Park (Block C west)" was the same triangle and is gone.
+- Building footprints: the Overture release of 21 October 2026 has nothing newer inside FDA City than our data (Google 2023-05 and Microsoft), so houses built after mid-2023 are still missing.
+
 ## 10. Known flaws and things not verified
 
 - **emap.pk is a third-party redraw** with its watermark. Ask FDA for the original plan (CAD or PDF) and rerun with it.

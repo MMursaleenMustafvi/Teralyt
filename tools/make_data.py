@@ -452,8 +452,9 @@ class EmapPlan:
         return []
 
     def cells(self):
-        """plot cells of the plan, in local metres: outlines cleaned of the bites the printed numbers take out of them"""
-        out = []
+        """plot cells of the plan, in local metres: outlines cleaned of the bites the printed numbers and the red
+        emap.pk watermark take out of them (the notch is filled up to the plot's hull, never over a neighbouring cell)"""
+        raw = []
         for c in self.L["cells"]:
             if c["colour"] not in PLOT_COLOURS or not (45 <= c["area_m2"] <= 2000):
                 continue
@@ -462,8 +463,18 @@ class EmapPlan:
                 pg = largest(pg.buffer(0))
             if pg is None or pg.area < 40:
                 continue
+            raw.append((c, pg))
+        tree = STRtree([pg for _, pg in raw])
+        out = []
+        for i, (c, pg) in enumerate(raw):
             hull = pg.convex_hull
-            g = hull if hull.area <= 1.15 * pg.area else pg
+            g = pg
+            if pg.area < 0.95 * hull.area:
+                others = [raw[j][1] for j in tree.query(hull) if j != i]
+                fill = hull.difference(unary_union(others).buffer(0.15)) if others else hull
+                g = largest(clean(fill)) or pg
+                if g.area > 2.2 * pg.area:            # a hull that spreads over open land: keep the outline
+                    g = pg
             g = clean(g.simplify(0.3).buffer(0.3, join_style=2))     # out to the middle of the printed plot line
             mrr = g.minimum_rotated_rectangle
             out.append({"poly": g, "sheet": "emap", "group": None, "colour": "Commercial" if c["colour"] == "red" else c["colour"],
@@ -642,7 +653,7 @@ def numbering_areas(kept, blk, cxy, tree, landmarks):
     return out
 
 
-def plan_street_lines(emap, outline, row, blocked, res=1.0, shrink=0):
+def plan_street_lines(emap, outline, row, blocked, res=1.0, shrink=0, corridor=None):
     """Centre lines of the streets the plan draws where no road is mapped yet (undeveloped parts of the society).
 
     The plan's street space is sampled on a 1 m grid through the registration field, kept inside the society and off
@@ -705,6 +716,10 @@ def plan_street_lines(emap, outline, row, blocked, res=1.0, shrink=0):
     for ln in merged:
         if ln.length < 14 and not (at_road(ln.coords[0]) or at_road(ln.coords[-1])):
             continue
+        if corridor is not None and ln.intersection(corridor).length > 0.4 * ln.length:
+            continue                      # runs along inside a main road's official corridor (service lanes, verges, median)
+        if ln.length < 30 and not (at_road(ln.coords[0]) and at_road(ln.coords[-1])):
+            continue                      # a short piece that does not link two roads is a stub, not a street
         out.append(ln.simplify(2.0))
     return [ln for ln in out if ln.length >= 8]
 
@@ -829,6 +844,79 @@ def corridor_lines(left, row, carriage, sheet_ink, block_of, res=1.0):
     # (a network of 150 m or more stays even if its link to a mapped road was not found; lone stubs go)
     lines = [ln for i, ln in enumerate(lines) if find(("l", i)) in linked or total[find(("l", i))] >= 150]
     return [ln for ln in (q.simplify(3.0) for q in lines) if ln.length >= 9]     # straight between junctions
+
+
+def road_offsets():
+    """sideways shifts of OpenStreetMap ways measured on satellite imagery (tools/align_roads.py)"""
+    path = os.path.join(SRC, "road_offsets.json")
+    return json.load(open(path)) if os.path.exists(path) else {}
+
+
+def shift_line(pts, prof):
+    """move each vertex of a local-metre polyline to its left by the shift interpolated at its distance along"""
+    P = np.array(pts, float)
+    seg = np.diff(P, axis=0)
+    L = np.hypot(*seg.T)
+    L[L == 0] = 1e-9
+    U = seg / L[:, None]
+    N = np.stack([-U[:, 1], U[:, 0]], 1)
+    cum = np.concatenate([[0], np.cumsum(L)])
+    d = np.array([q[0] for q in prof])
+    o = np.array([q[1] for q in prof])
+    out = []
+    for i, p in enumerate(P):
+        n = N[min(i, len(N) - 1)] if i in (0, len(P) - 1) else (N[i - 1] + N[i])
+        n = n / (np.hypot(*n) or 1)
+        out.append(tuple(p + n * float(np.interp(cum[i], d, o))))
+    return out
+
+
+def align_to_plan(line, emap, band=12.2, search=8.0, step=15.0):
+    """sideways shift (to the left, m) that centres a street on the plan's street space, every `step` m; None if unclear"""
+    P = np.array(line.coords, float)
+    seg = np.diff(P, axis=0)
+    L = np.hypot(*seg.T)
+    if L.sum() < 40:
+        return None
+    L[L == 0] = 1e-9
+    cum = np.concatenate([[0], np.cumsum(L)])
+    ts = np.arange(-(search + band / 2 + 3), search + band / 2 + 3 + 1e-6, 0.5)
+    ss = np.arange(-4, 4.01, 2.0)
+    prof = []
+    for d in np.arange(8, cum[-1] - 8, step):
+        i = int(min(max(np.searchsorted(cum, d) - 1, 0), len(L) - 1))
+        u = seg[i] / L[i]
+        n = np.array([-u[1], u[0]])
+        c = P[i] + u * (d - cum[i])
+        T, S = np.meshgrid(ts, ss)
+        X, Y = c[0] + n[0] * T + u[0] * S, c[1] + n[1] * T + u[1] * S
+        px, py = emap._idx(X.ravel(), Y.ravel())
+        ok = (px >= 0) & (px < emap.road.shape[1]) & (py >= 0) & (py < emap.road.shape[0])
+        v = np.zeros(px.shape, float)
+        v[ok] = emap.road[py[ok], px[ok]]
+        a = v.reshape(T.shape).mean(0)
+        best, bo = -9, None
+        for o in np.arange(-search, search + 1e-6, 0.5):
+            ins = (ts >= o - band / 2) & (ts <= o + band / 2)
+            fl = ((ts >= o - band / 2 - 3) & (ts < o - band / 2)) | ((ts > o + band / 2) & (ts <= o + band / 2 + 3))
+            sc = a[ins].mean() - 0.8 * a[fl].mean() - 0.01 * abs(o)
+            if sc > best:
+                best, bo = sc, o
+        cover = a[(ts >= bo - band / 2) & (ts <= bo + band / 2)].mean()
+        prof.append((d, bo if cover > 0.6 else np.nan))
+    d = np.array([q[0] for q in prof])
+    o = np.array([q[1] for q in prof])
+    good = ~np.isnan(o)
+    if good.sum() < 3:
+        return None
+    oo = np.array([np.nanmedian(o[max(0, i - 2):i + 3]) if np.isfinite(o[max(0, i - 2):i + 3]).sum() >= 2 else np.nan for i in range(len(o))])
+    g2 = ~np.isnan(oo)
+    if g2.sum() < 3:
+        return None
+    oo = np.interp(d, d[g2], oo[g2])
+    if np.nanmedian(np.abs(o[good] - np.interp(d[good], d, oo))) > 1.5 or np.max(np.abs(oo)) < 0.75:
+        return None
+    return [[float(a), float(b)] for a, b in zip(d, oo)]
 
 
 def load_buildings():
@@ -1011,6 +1099,7 @@ def main():
 
     # ---- roads ------------------------------------------------------------------------
     osm = json.load(open(os.path.join(SRC, "osm_fda_area.json"), encoding="utf-8"))["elements"]
+    offs = road_offsets()
     work = env.buffer(900)
     near_env = env.buffer(60)
     dividers = [LineString([plan.to_m(x, 0), plan.to_m(x, 1150)]) for x in bl["divider_x"]]
@@ -1021,7 +1110,10 @@ def main():
         hw = t.get("highway")
         if not hw:
             continue
-        line = LineString([xy(p["lon"], p["lat"]) for p in e["geometry"]])
+        pts_ = [xy(p["lon"], p["lat"]) for p in e["geometry"]]
+        if str(e["id"]) in offs and len(pts_) >= 2:
+            pts_ = shift_line(pts_, offs[str(e["id"])])          # onto the asphalt seen on satellite imagery
+        line = LineString(pts_)
         if line.length < 1 or not line.intersects(work):
             continue
         if t.get("junction") in ("roundabout", "circular"):
@@ -1041,6 +1133,16 @@ def main():
         else:
             cls = "residential"
         roads.append({"id": e["id"], "name": t.get("name"), "oneway": t.get("oneway") == "yes", "line": line, "cls": cls})
+    if emap is not None:            # streets onto the plan's street space (registered to 0.65 m): one street, not two side by side
+        n_al, moved = 0, []
+        for d in roads:
+            if d["cls"] in ("residential", "collector") and d.get("id") and str(d["id"]) not in offs and d["line"].intersects(env):
+                pr = align_to_plan(d["line"], emap)
+                if pr:
+                    d["line"] = LineString(shift_line(list(d["line"].coords), pr))
+                    n_al += 1
+                    moved.append(float(np.median([q[1] for q in pr])))
+        print(f"streets aligned to the plan's street space: {n_al} (median shift {np.median(np.abs(moved)) if moved else 0:.1f} m)")
     main_lines = [d["line"] for d in roads if d["cls"] == "main"]
     main_u = unary_union(main_lines)
     named = [(r["class"], plan.line(r), r) for r in feats.get("road_lines", []) if r["class"] != "main"]
@@ -1365,7 +1467,19 @@ def main():
     homes_land = carve(homes["poly"], 0.35, 500)
     for f in feats["facilities"]:
         add_lm(carve(plan.geom(f).buffer(2, join_style=2), 0.75, 40), f["kind"], f["name"], f["block"], f)
+    # where the newer plan (emap.pk) names a park on a different piece of land than the fdacity.pk block sheet
+    EMAP_PARK_AT = {"Park C-3": (73.0813086, 31.532504)}
+    EMAP_PARK_DROP = {"Park (Block C west)"}        # the same triangle, now named Park C-3
     for pk in feats["parks"]:
+        if emap is not None and pk["name"] in EMAP_PARK_DROP:
+            continue
+        if emap is not None and pk["name"] in EMAP_PARK_AT:
+            pt = Point(*xy(*EMAP_PARK_AT[pk["name"]]))
+            face = next((q["land"] for q in parcels if q["land"].contains(pt)), None)
+            if face is not None:
+                add_lm(carve(face.buffer(-0.5), 0.6, 60), "park", pk["name"], pk["block"],
+                       dict(pk, source="Newer FDA City plan (emap.pk), which names this triangle Park C-3"))
+                continue
         add_lm(carve(plan.geom(pk), 0.6, 60, pk.get("kanal")), "park", pk["name"], pk["block"], pk)
     if homes_land is not None:
         add_lm(homes_land, "homes", homes["name"], homes.get("block"), homes, {"note": "Reserved for the FDA City Homes housing scheme"})
@@ -1467,7 +1581,7 @@ def main():
             acc = [(g, c) for g, c in acc if g is not None]
         blocks_u = None
         if acc:
-            blocks_u = clean(unary_union([g.buffer(1.0, join_style=2) for g, _ in acc]).buffer(-1.0, join_style=2))
+            blocks_u = clean(unary_union([clean(g).buffer(1.0, join_style=2) for g, _ in acc]).buffer(-1.0, join_style=2))
             need = 1 if emap is not None else 4             # a lone shape on a block map is lettering; on the full plan it is a plot
             keep = [q for q in polys(blocks_u) if sum(1 for g, _ in acc if q.contains(g.representative_point())) >= need]
             blocks_u = unary_union(keep) if keep else None
@@ -1486,9 +1600,12 @@ def main():
             for h in polys(closed.difference(blocks_u.buffer(0.05))):
                 if 70 <= h.area <= 800 and h.area / h.minimum_rotated_rectangle.area > 0.8 and not h.buffer(-2.5).is_empty                         and (emap is None or emap.plot_share(h) > 0.6):
                     plot_geo.append((clean(h.buffer(-0.05)), size_by_area(h.area), Lay("official", None, False, gap=emap is not None)))
-                    blocks_u = blocks_u.union(h)
+                    blocks_u = clean(blocks_u.union(h))
             cell_blocks.append(blocks_u)
-            rest = free.difference(blocks_u.buffer(STREET + 0.4, join_style=2))
+            try:
+                rest = free.difference(clean(blocks_u.buffer(STREET + 0.4, join_style=2)))
+            except shapely.errors.GEOSException:
+                rest = shapely.make_valid(free).difference(shapely.make_valid(blocks_u.buffer(STREET + 0.4, join_style=2)))
         else:
             rest = free
         todo_regions = []
@@ -1603,8 +1720,12 @@ def main():
     search = clean(unary_union([left0] + [q.buffer(0.1) for q in unplotted])) if unplotted else left0
     tick("streets")
     if emap is not None:          # the plan draws every street: take them from it where no road is mapped yet
+        half_row = {"main": 21.0, "service": 5.0, "road110": 9.5, "divider_half": 8.0, "divider": 13.0, "road85": 13.0, "collector": 9.0,
+                    "arterial": 15.0, "highway": 20.0, "roundabout": 12.0, "residential": 6.5}
+        corridor = clean(unary_union([d["line"].buffer(half_row[d["cls"]], cap_style=2) for d in roads if d["cls"] in half_row]))
         lines_new = plan_street_lines(emap, outline, [surf.intersection(outline.buffer(5)), reserve.intersection(outline.buffer(5))],
-                                      [pg for pg, _, _ in plot_geo] + [Polygon([xy(*c) for c in f["geometry"]["coordinates"][0]]) for f in landmarks], shrink=1)
+                                      [pg for pg, _, _ in plot_geo] + [Polygon([xy(*c) for c in f["geometry"]["coordinates"][0]]) for f in landmarks], shrink=1,
+                                      corridor=corridor)
     else:
         lines_new = corridor_lines(search, row_now, car_now, sheet_ink, block_m)
     tick(f"street lines: {len(lines_new)}")
@@ -1612,9 +1733,9 @@ def main():
     half = WIDTH["residential"] / 2
     if lines_new:
         lu = unary_union(lines_new)
-        new_carriage = clean(lu.buffer(half, join_style=1, cap_style=1).difference(blocked_u.buffer(0.4)).intersection(outline))
+        new_carriage = clean(lu.buffer(half, join_style=1, cap_style=2).difference(blocked_u.buffer(0.4)).intersection(outline))
         new_carriage = clean(unary_union([q for q in polys(new_carriage) if q.area > 40]))
-        new_reserve = clean(lu.buffer(STREET / 2, join_style=1, cap_style=1).difference(blocked_u).intersection(outline))
+        new_reserve = clean(lu.buffer(STREET / 2, join_style=1, cap_style=2).difference(blocked_u).intersection(outline))
         print(f"streets between the plots, not in OpenStreetMap yet: {sum(l.length for l in lines_new) / 1000:.1f} km in {len(lines_new)} pieces")
     sheet_lines = lines_new
     if new_reserve is not None and unplotted:                 # a street through open land is cut out of it
@@ -1677,7 +1798,13 @@ def main():
                 taken.append(f.buffer(0.05))
         if taken:
             q = clean(q.difference(unary_union(taken)))
-        verge_extra += [r for r in polys(q) if r.area > 4]
+        for r in polys(q):
+            if r.area <= 4:
+                continue
+            if emap is not None and r.area > 600 and not r.buffer(-7.0).is_empty and (emap.road_share(r) or 0) < 0.3:
+                greens.append(r)                  # the plan draws a park or open ground here, not a street
+            else:
+                verge_extra.append(r)
     if late_bands:                       # the streets that divided the unread land
         lb = clean(unary_union(late_bands))
         lc = clean(unary_union([ln.buffer(half, cap_style=2, join_style=1) for ln in late_lines]).intersection(lb)) if late_lines else None
