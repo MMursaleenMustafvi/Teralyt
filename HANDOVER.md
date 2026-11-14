@@ -16,7 +16,7 @@ Terralyt is a Final Year Project at FAST-NUCES (Chiniot-Faisalabad), 2026. It sh
 
 These rules came from repeated corrections. Earlier work was rejected each time one of them was broken.
 
-1. **Satellite imagery is only for measuring real things:** the nalla (storm drain), roads, roundabouts, their widths, the society boundary, and (since this session, at his request) which plots have a house on them.
+1. **Satellite imagery is only for measuring real things:** the nalla (storm drain), roads, roundabouts, their widths, the society boundary, and (since 13 November 2026, at his request) which plots have a house on them.
 2. **Everything else comes from the official FDA City maps:** which site is a school, mosque or park, the block layout, the plots, official road widths, areas. No assumptions and no invented facilities.
 3. **The result is a clean, realistic, detailed, interactive 3D model.** It is not a satellite photo with boxes on top. The drawn ground is the default; the satellite photo is an optional toggle.
 4. **Plots are land parcels, not buildings.** A house is drawn only where a building stands today.
@@ -51,6 +51,7 @@ Official maps he supplied:
 | --- | --- |
 | Repo on disk | `C:\Users\Taha\Teralyt` |
 | GitHub | `MMursaleenMustafvi/Teralyt`, branch `feature/3d-map` |
+| Latest code commit | `c802cae` (streets straightened, plot shapes cleaned), pushed; later commits only touch this file |
 | Pull request | Not opened yet |
 | `main` | Untouched by this work |
 | Cesium ion token | Not provided; the real-world tab has only been run with OpenStreetMap tiles and flat ground |
@@ -70,7 +71,14 @@ Machine quirks:
 
 - `git` is at `C:\Program Files\Git\cmd` and may not be on PATH in a tool shell.
 - Python 3.15 has shapely, numpy, pillow, matplotlib, playwright, opencv-python-headless, scikit-image, scipy and duckdb installed. Run the tools with `python -I`.
-- `tools/shoot.py` takes headless screenshots with the installed Chrome and software rendering. Run one capture at a time. The page now loads in about 10 seconds.
+- `tools/shoot.py` takes headless screenshots with the installed Chrome and software rendering. Run one capture at a time. The page now loads in about 12 seconds.
+- **Only one server may run on port 8000.** Windows lets several `python -m http.server 8000` processes share the port; the browser then reaches a dead one and shows `ERR_EMPTY_RESPONSE` ("localhost didn't send any data"). This happened on 13 November. Before starting a server, stop the old ones:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'http\.server' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+How to check one spot after a change: regenerate, then load the page and fly to the spot, for example `python -I tools/shoot.py "http://127.0.0.1:8000/map.html?plot=A-1059" out.png --el "#stage"`, and look at the image. Taha reports flaws as close-up screenshots; the plot numbers in them locate the place, but **plot numbers shift after every regeneration**, so note the plot's latitude and longitude (shown in the side panel, or `lat` / `lon` in `plots.geojson`) before regenerating and search by `lat, lon` afterwards.
 
 ## 6. What is built
 
@@ -111,7 +119,7 @@ The code reference (function names, data schema, performance rules) is in `CLAUD
    - **streets between the plots** (`corridor_lines` in `make_data.py`): the land left between the placed plots is thinned to its centre lines at 1 m; a line is kept where the corridor is 6 to 26 m wide and the block map shows street space there. Each is drawn as a 5 m carriageway in a 40 ft reserve, so a street has one width and runs straight between junctions (15.3 km in 178 pieces). Dead ends under 28 m and lone stubs are dropped;
    - leaves society land that every block map shows blank as open ground (layer `open` in `blocks.geojson`), with no plots.
    - Regeneration takes about 40 seconds.
-5. **Houses (new):** building footprints inside the society are matched to plots. A plot with a footprint is `built`; the footprint becomes a house model at its real position. Footprints that lie on a mapped road (24) or inside a named site are left out.
+5. **Houses (new):** building footprints inside the society are matched to plots. A plot with a footprint is `built`; the footprint becomes a house model at its real position. Footprints that lie on a mapped road (11) or inside a named site are left out.
 6. **Development class (new):** share of built plots within 150 m of the plot: High from 30%, Medium from 8%, otherwise Low. This is a simple measured stand-in until the ML model exists.
 7. **Main gate (new):** position measured on Esri World Imagery (31.50934 N, 73.06941 E, where the Main Entrance Road leaves Sargodha Road); the official Block A map draws the gate across that road. It is a point feature in `landmarks.geojson`, centred between the two carriageways.
 8. **Measured sizes:** carriageway widths, roundabout sizes and the nalla were measured on Esri World Imagery at zoom 19 (0.25 m per pixel).
@@ -215,7 +223,7 @@ Layout:
 Houses:
 
 - **The footprint data is from about 2023.** Houses built since then are missing. Google Earth could not be used directly (no programmatic access); Esri World Imagery and the open footprint datasets were used instead.
-- **115 houses stand on land that is not a plot in the model** (open land, generated green space, or the edge of the society). They are drawn but belong to no plot.
+- **111 houses stand on land that is not a plot in the model** (open land, generated green space, or the edge of the society). They are drawn but belong to no plot.
 - **House appearance and storeys are assumed.**
 
 Data honesty:
@@ -225,7 +233,7 @@ Data honesty:
 
 Graphics:
 
-- **Buildings are still assembled from simple shapes** with textures drawn in code. No ready-made glTF models, photo textures or ambient occlusion were added in this session.
+- **Buildings are still assembled from simple shapes** with textures drawn in code. No ready-made glTF models, photo textures or ambient occlusion have been added.
 - **Speed on real hardware is untested.** All testing used software rendering on Taha's PC.
 
 Integration:
@@ -236,18 +244,19 @@ Integration:
 
 ## 11. Suggested order for the next work
 
-1. Scan the whole map block by block in 3D for remaining layout flaws (Block F first), and fix them at the source.
-1. Raise the share of official plot outlines: fetch higher-resolution block maps if they exist, or tune `trace_plots.py` per sheet (Blocks D and F first).
-2. Read the official plot numbers with OCR and replace the running numbers.
-3. Fix the boulevard corridor so the commercial rows read from the sheets can be placed.
-4. Overlay each block sheet on a top-down render and list every named site that is misplaced, missing or the wrong type. `trace_plots.py --debug` writes an overlay image per sheet.
-5. Check each of the ten undersized sites.
-6. Rerun `tools/audit.py` and the `?audit=1` model audit after any change.
-7. Test the page on the laptop that will be used for the viva.
+1. Scan the whole map block by block in 3D for remaining layout flaws (Block F first), and fix them at the source. Taha asked for all inconsistencies in the whole map to be fixed; only the spots he sent and two more areas have been checked so far.
+2. Give the 303 official plots that have no street a street: find why their corridor was not detected (`corridor_lines` in `make_data.py`), most often because neighbouring plots were not read.
+3. Raise the share of official plot outlines: fetch higher-resolution block maps if they exist, or tune `trace_plots.py` per sheet (Blocks D and F first).
+4. Read the official plot numbers with OCR and replace the running numbers.
+5. Fix the boulevard corridor so the commercial rows read from the sheets can be placed.
+6. Overlay each block sheet on a top-down render and list every named site that is misplaced, missing or the wrong type. `trace_plots.py --debug` writes an overlay image per sheet.
+7. Check each of the ten undersized sites.
+8. Rerun `tools/audit.py` and the `?audit=1` model audit after any change.
+9. Test the page on the laptop that will be used for the viva.
 
 ## 12. Graphics
 
-Done in this session: the main gate model, houses with porches, roof stair rooms, tanks, boundary walls and gates, evening light with long shadows, bare scrub ground for unplotted land.
+Done on 13 November 2026: the main gate model, houses with porches, roof stair rooms, tanks, boundary walls and gates, evening light with long shadows, bare scrub ground for unplotted land.
 
 Still open, in the order discussed with Taha:
 
@@ -265,6 +274,7 @@ Models must stay labelled illustrative. Plots must stay land parcels.
 
 ## 13. Open items waiting on Taha
 
+- More screenshots of flaws, if he finds any after the 14 November fix. Fix those first and update this file.
 - Cesium ion token.
 - Real plot records from the society, if he can get them.
 - Whether to open the pull request for Mursaleen.
