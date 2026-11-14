@@ -114,13 +114,14 @@ The code reference (function names, data schema, performance rules) is in `CLAUD
 
 emap.pk's own placement on the satellite photo is off by about 4 m (up to 13 m in Block D), so its positions are not used as they are.
 
-1. **`tools/emap_plan.py`** (stages `fetch, cells, roads, register, ocr, digits, write`; each caches in `tools/source/cache/emap/`, git-ignored; a full run takes about 30 minutes):
+1. **`tools/emap_plan.py`** (stages `fetch, cells, split, roads, register, ocr, digits, write`; each caches in `tools/source/cache/emap/`, git-ignored; a full run takes about 30 minutes):
    - `fetch`: downloads the 4,050 zoom-19 tiles.
-   - `cells`: every closed plot outline. Plot lines are told from the printed numbers and the watermark by being thin, straight and long (oriented line filters over 6 m); digits are thick short strokes. 14,503 outlines.
+   - `cells`: every closed plot outline. Plot lines are told from the printed numbers and the watermark by being thin, straight and long (oriented line filters over 6 m); digits are thick short strokes (white digits on the red commercial plots are found separately). About 14,100 outlines.
+   - `split`: outlines that hold two or more printed numbers with no line between them (the plan sometimes omits a divider) are cut halfway between the numbers.
    - `roads`: the plan's street space and plot colours, at 0.5 m.
    - `register`: the plan's street space is matched to the OpenStreetMap streets in 1,523 overlapping 260 m windows; 391 outliers dropped; a smooth displacement field is fitted. Shift before: 3.7 m median, 8.2 m at the 95th percentile. Residual after: **0.65 m median, 1.7 m p95** (per block 0.51 to 0.72 m).
    - `ocr`: the number in each cell, turned upright, read by Tesseract (`winget install UB-Mannheim.TesseractOCR`) in four turns.
-   - `digits`: a digit recogniser trained on Tesseract's sure readings re-reads the rest; neighbours then correct each other (plots in a row are numbered one after the other).
+   - `digits`: a digit recogniser trained on Tesseract's sure readings re-reads the rest (touching digits are cut apart); a 4 or 7 much narrower than the other digits is a 1; numbers made of 0 1 6 8 9 are turned the same way up as their neighbours; neighbours in a row then correct each other (numbered one after the other).
    - `write`: `tools/source/emap_layout.json` (registered cells with numbers), `emap_road.png`, `emap_plotcol.png`.
 2. **`tools/make_data.py`** uses `emap_layout.json` when it exists (`--sheets` goes back to the fdacity.pk block maps):
    - society land is what the plan draws (Motorway City stays a hole);
@@ -145,10 +146,10 @@ Reference values: local metre frame equirectangular, origin 73.0875 E, 31.525 N.
 
 | Thing | Source | Trust |
 | --- | --- | --- |
-| 13,263 plot outlines (`layout: FDA City plan (emap.pk), registered to the streets`) | emap.pk redraw of the FDA plan, registered to the OpenStreetMap streets | Good: fit residual 0.65 m median; checked over Google imagery in every block |
-| 72 plots (`Gap in a row of the plan`) | Plot-sized gaps in a plan row whose outline could not be read | Real gaps of the plan; outline approximate |
-| 34 plots (`Generated in the street block`) | Small leftovers split at the plan's size | Not real plots |
-| Plot numbers (`plot_number`) | Printed on the plan, read by OCR | 12,009 plots (90%) numbered; 856 not confirmed by a neighbour (said in `number_source`) |
+| 12,995 plot outlines (`layout: FDA City plan (emap.pk), registered to the streets`) | emap.pk redraw of the FDA plan, registered to the OpenStreetMap streets | Good: fit residual 0.65 m median; checked over Google imagery in every block |
+| 62 plots (`Gap in a row of the plan`) | Plot-sized gaps in a plan row whose outline could not be read | Real gaps of the plan; outline approximate |
+| 2 plots (`Generated in the street block`) | Small leftovers split at the plan's size | Not real plots |
+| Plot numbers (`plot_number`) | Printed on the plan, read by OCR | 12,341 plots (94.5%) numbered; about 96% right in a 144-plot spot check; 633 not confirmed by a neighbour (said in `number_source`) |
 | Sub-block (`sub_block`) | Estimated from the numbering and the nearest park name | Estimate, labelled so |
 | Block X layout and sites | emap.pk plan (newer revision) | Not on the fdacity.pk maps; Zameen says the land is still being acquired |
 | Named sites of Blocks A to F | fdacity.pk block maps (unchanged) | Good |
@@ -163,29 +164,29 @@ Reference values: local metre frame equirectangular, origin 73.0875 E, 31.525 N.
 
 | Check | Result |
 | --- | --- |
-| Plots | **13,369** (A 2,371, B 1,588, C 1,771, D 2,201, E 2,253, F 1,540, X 1,645) |
+| Plots | **13,059** (A 2,244, B 1,577, C 1,718, D 2,165, E 2,203, F 1,521, X 1,631) |
 | Plots overlapping a carriageway, right of way, the nalla, a site or another plot | 0 |
 | Plots outside the boundary | 0 |
-| Plots more than 6 m from any street | **32 (0.2%)** (was 303) |
+| Plots more than 6 m from any street | **26 (0.2%)** (was 303) |
 | Streets invented by the generator | 0 (was 130) |
 | Plan plot cells that became no plot | about 250 of 13,559: OpenStreetMap draws a road over the plan's first row (mostly the boulevard service roads) |
 | Empty land over 600 m² | 2 patches: 2.2 ha east of Block E (outside the plan, inside the outline) and 0.2 ha by the motorway |
 | Sites | 132 plus the main gate; 13 of them in Block X |
-| Plot numbers | 12,009 numbered; 856 of them not confirmed by a neighbour; 1,360 without a number |
+| Plot numbers | **12,341 numbered (94.5%)**; 633 not confirmed by a neighbour; 718 without a number. Spot check of 144 random plots against the plan: about 96% of numbers right |
 | Buildings | 492 footprints; 359 built plots; 0 on a carriageway |
 
-Browser test (headless Chrome, software rendering): page loads; 13,369 plots and 134 landmarks; model audit `?audit=1`: 0 parts outside their sites; Block X renders; search `12 F4`, `D-108`, `X-1450` finds the right plots; the side panel shows plot number, estimated sub-block, area in marla and the source. The old `bg.js` `drawImage` error is still there (not the map's).
+Browser test (headless Chrome, software rendering): page loads; 13,059 plots and 134 landmarks; model audit `?audit=1`: 0 parts outside their sites; Block X renders; search `12 F4`, `D-108`, `X-1450` finds the right plots; the side panel shows plot number, estimated sub-block, area in marla and the source. The old `bg.js` `drawImage` error is still there (not the map's).
 
 Google check: each block's plots were drawn over Google satellite (zoom 19): plots lie between the real roads and built plots hold their house. Google and Esri imagery agree to about 1.2 m here.
 
 ## 10. Known flaws and things not verified
 
 - **emap.pk is a third-party redraw** with its watermark. Ask FDA for the original plan (CAD or PDF) and rerun with it.
-- **Plot numbers are OCR**: about 10% of plots have none, and some numbers are still wrong (856 unconfirmed). Block A (76% numbered) and Block X (86%) have the smallest print.
+- **Plot numbers are OCR**: 5.5% of plots have none and about 4% of the numbers are wrong (very small print, upside-down numbers made of 1, 6, 8, 9). Each plot says in `number_source` whether a neighbour confirms its number.
 - **Sub-blocks are estimated**, not read.
 - **About 250 plan plots are not placed** where OpenStreetMap draws a road over the plan's first row (boulevard service roads, one 40 ft street in Block C, the main entrance road in Block A). Each needs a look on Google: either the road or the plan is right.
 - Block X site purposes come from the plan's labels only.
-- The Cesium tab is untested with a token and does not draw the houses or the gate.
+- The Cesium tab now draws the houses and the main gate; it is still untested with a token (terrain, World Imagery).
 - `plot.html` and the top search bar still use the 60-plot sample in `assets/app.js` (Mursaleen's pages).
 - Buildings are simple shapes; speed on real hardware untested; the footprint data is from about 2023.
 

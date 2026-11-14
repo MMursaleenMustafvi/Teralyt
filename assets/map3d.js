@@ -103,7 +103,8 @@ function Map3D(elementId, opts) {
   // ---- build ----------------------------------------------------------------
   async function build() {
     status('loading', 'Loading map data…');
-    const [boundary, roads, parks, plots] = await Promise.all([fetchJson('boundary'), fetchJson('roads'), fetchJson('parks'), fetchJson('plots')]);
+    const [boundary, roads, parks, plots, buildings, landmarks] = await Promise.all([fetchJson('boundary'), fetchJson('roads'), fetchJson('parks'), fetchJson('plots'),
+      fetchJson('buildings').catch(() => ({ features: [] })), fetchJson('landmarks').catch(() => ({ features: [] }))]);
 
     // society outline
     const bring = boundary.features[0].geometry.coordinates[0];
@@ -177,6 +178,28 @@ function Map3D(elementId, opts) {
       } catch (e) { console.warn('terrain sampling failed, using ellipsoid heights', e); }
     }
     if (!skip('plots')) buildPlotPrimitive();
+    // houses standing today: real footprints (satellite-detected), height assumed at 3.5 m per storey
+    const houseInst = [];
+    for (const f of buildings.features) {
+      const g = f.geometry, pr = f.properties || {};
+      if (!g || g.type !== 'Polygon') continue;
+      const pos = toCart(g.coordinates[0], true);
+      if (pos.length < 3) continue;
+      const base = pr.plot_id && byId.get(pr.plot_id) ? byId.get(pr.plot_id)._base : 0;
+      houseInst.push(new C.GeometryInstance({
+        id: pr.plot_id ? { plot: pr.plot_id } : undefined,
+        geometry: new C.PolygonGeometry({ polygonHierarchy: new C.PolygonHierarchy(pos), height: base + 0.4, extrudedHeight: base + 0.4 + (+pr.height || 3.5), vertexFormat: C.PerInstanceColorAppearance.VERTEX_FORMAT }),
+        attributes: { color: C.ColorGeometryInstanceAttribute.fromColor(css('#efe4cf')) }
+      }));
+    }
+    if (houseInst.length && !skip('houses')) scene.primitives.add(new C.Primitive({ geometryInstances: houseInst, appearance: new C.PerInstanceColorAppearance({ translucent: false, closed: true }), allowPicking: true }));
+    // main gate (a point on the Main Entrance Road)
+    for (const f of landmarks.features) {
+      if (f.properties.kind !== 'gate' || f.geometry.type !== 'Point') continue;
+      const [lon, lat] = f.geometry.coordinates;
+      scene.primitives.add(new C.PointPrimitiveCollection()).add({ position: C.Cartesian3.fromDegrees(lon, lat, 2), pixelSize: 11, color: css('#d6a840'), outlineColor: css('#1a2a1e'), outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY });
+      labels.add({ position: C.Cartesian3.fromDegrees(lon, lat, 12), text: f.properties.name || 'Main gate', font: '700 14px "Plus Jakarta Sans", Segoe UI, sans-serif', fillColor: C.Color.WHITE, outlineColor: css('#1a2a1e'), outlineWidth: 3, style: C.LabelStyle.FILL_AND_OUTLINE, verticalOrigin: C.VerticalOrigin.BOTTOM, distanceDisplayCondition: new C.DistanceDisplayCondition(0, 6000), disableDepthTestDistance: Number.POSITIVE_INFINITY });
+    }
     scene.requestRender();
     status('ready', api.plots.length + ' plots');
     reset(0);
@@ -194,7 +217,7 @@ function Map3D(elementId, opts) {
     if (plotPrim) { scene.primitives.remove(plotPrim); plotPrim = null; }
     const inst = [];
     for (const p of api.plots) {
-      const h = Math.max(0.3, +p.height || 0.4);
+      const h = 0.4;                         // a plot is land: houses are drawn from their own footprints
       inst.push(new C.GeometryInstance({
         id: { plot: p.id },
         geometry: new C.PolygonGeometry({ polygonHierarchy: new C.PolygonHierarchy(toCart(p._ring, true)), height: p._base, extrudedHeight: p._base + h, vertexFormat: C.PerInstanceColorAppearance.VERTEX_FORMAT }),
@@ -241,7 +264,7 @@ function Map3D(elementId, opts) {
     if (!p) return null;
     api.selected = p.id;
     if (selPrim) { scene.primitives.remove(selPrim); selPrim = null; }
-    const h = Math.max(0.3, +p.height || 0.4) + 0.15;
+    const h = 0.55;                          // just above the flat plot
     selPrim = scene.primitives.add(new C.Primitive({
       geometryInstances: [
         new C.GeometryInstance({ id: { plot: p.id }, geometry: new C.PolygonGeometry({ polygonHierarchy: new C.PolygonHierarchy(toCart(p._ring, true)), height: p._base - 0.05, extrudedHeight: p._base + h, vertexFormat: C.PerInstanceColorAppearance.VERTEX_FORMAT }), attributes: { color: C.ColorGeometryInstanceAttribute.fromColor(css(SELECT)) } })

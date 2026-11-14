@@ -484,9 +484,9 @@ class EmapPlan:
 class Lay(str):
     """layout tag of a plot ('official' / 'generated') that also carries the plot number printed on the plan"""
 
-    def __new__(cls, v, number=None, checked=False, gap=False):
+    def __new__(cls, v, number=None, checked=False, gap=False, moved=None):
         o = str.__new__(cls, v)
-        o.number, o.checked, o.gap = number, checked, gap
+        o.number, o.checked, o.gap, o.moved = number, checked, gap, moved
         return o
 
 
@@ -1207,6 +1207,7 @@ def main():
     ptree = STRtree([p["free"] for p in with_free])
     # what a plot may never cover: carriageways, the nalla, medians, strips and roundabout islands
     Parts_hard = Parts([carriage.buffer(0.3), nala_zone] + [p["land"] for p in P if p["kind"] in ("median", "strip", "island")])
+    cell_tree = STRtree([c["poly"] for c in cells])
     cand = []
     why = Counter()
     for c in cells:
@@ -1234,6 +1235,28 @@ def main():
                     c["clip"] = g
                     ba = c["poly"].area
                     why["trimmed to the road as built"] += 1
+        if (best is None or ba < 0.55 * c["poly"].area) and emap is not None:
+            # still on the road: move the plot straight off it (at most 6 m), onto free land no other plan plot uses
+            hard = Parts_hard.near(c["poly"])
+            if hard is not None and not hard.is_empty and soc_fp.contains(cen):
+                on = c["poly"].intersection(hard)
+                if not on.is_empty:
+                    v = np.array([cen.x - on.centroid.x, cen.y - on.centroid.y])
+                    nv = float(np.hypot(*v))
+                    for d in (np.arange(1.0, 6.01, 0.5) if nv > 0.2 else []):
+                        g = affinity.translate(c["poly"], *(v / nv * d))
+                        if g.intersection(Parts_hard.near(g) or Polygon()).area > 0.03 * g.area:
+                            continue
+                        if any(o is not c and o["poly"].intersection(g).area > 0.08 * g.area for o in (cells[j] for j in cell_tree.query(g))):
+                            break                                  # it would sit on its neighbour: leave it out
+                        hit = [with_free[i] for i in ptree.query(g)]
+                        fa = max((q["free"].intersection(g).area for q in hit), default=0)
+                        if fa >= 0.85 * g.area:
+                            best = max(hit, key=lambda q: q["free"].intersection(g).area)
+                            c["poly"], c["clip"], ba = g, g, g.area
+                            c["moved"] = round(float(d), 1)
+                            why["moved off the road as built"] += 1
+                        break
         if best is None or ba < 0.55 * c["poly"].area:
             why["on a road or outside society land"] += 1
             c["drop"] = f"on a road or outside society land ({ba / c['poly'].area:.2f} on parcel land)"
@@ -1457,7 +1480,7 @@ def main():
                 near_main = main_u.distance(g) < 45
                 com = c["colour"] == "Commercial" and (emap is not None or (near_main and g.area < 330))
                 sz = "Commercial" if com else size_by_area(g.area)
-                plot_geo.append((g, sz, Lay("official", c.get("number"), c.get("checked", False))))
+                plot_geo.append((g, sz, Lay("official", c.get("number"), c.get("checked", False), moved=c.get("moved"))))
             # plots the print did not let us read: holes and notches of a block that have the size of a plot
             closed = clean(blocks_u.buffer(5.0, join_style=2).buffer(-5.0, join_style=2)).intersection(free)
             for h in polys(closed.difference(blocks_u.buffer(0.05))):
@@ -1827,7 +1850,8 @@ def main():
             "built_source": BUILT_SOURCE, "built_share_150m": round(float(share[i]), 2),
             "source": "Sample value (no society record yet)", "confidence": "Low", "lat": lat, "lon": lon,
             "area_m2": round(pg.area), "marla": round(pg.area / 25.29, 1),
-            "layout": ("FDA City plan (emap.pk), registered to the streets" if emap is not None and not getattr(lay, "gap", False) else
+            "layout": ("FDA City plan (emap.pk), registered to the streets" + (f"; moved {lay.moved} m off the road as built" if getattr(lay, "moved", None) else "")
+                       if emap is not None and not getattr(lay, "gap", False) else
                        "Gap in a row of the plan (outline not readable)" if emap is not None else "Official block map") if lay == "official" else "Generated in the street block",
             "accuracy": "georeferenced" if lay == "official" else "approximate"}))
     for g, pr in bfeats:

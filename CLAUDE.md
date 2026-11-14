@@ -56,6 +56,8 @@ Screenshot test: `python -I tools/shoot.py http://127.0.0.1:8000/map.html out.pn
 
 ## Real-world map (`assets/map3d.js`, CesiumJS 1.119)
 
+- Draws the plots (flat land parcels), the houses standing today (footprints extruded to their assumed height; clicking one selects its plot), parks, roads, block labels and the main gate.
+
 - `Map3D(elementId, { onPick, onHover, onStatus, layer })` with `setLayer`, `select`, `reset`, `zoomIn`, `zoomOut`, `flyToBlock`, `search`. World Terrain + World Imagery when a token is set.
 - Plots are one batched `Primitive`. Rings must not repeat the closing point or contain duplicate points (`toCart(ring, true)`), otherwise Cesium's worker throws "normalized result is not a number" and rendering stops.
 
@@ -77,7 +79,7 @@ Landmark kinds: highschool, postoffice (post office, police station and telephon
 
 Plot properties: `id`, `plot_no` (block and the number printed on the plan, e.g. `D-108`; `D-108 (D2)` with the estimated sub-block where a number repeats in a block; `X-u12` when no number could be read), `plot_number`, `sub_block` (estimated), `number_source`, `marla`, `block`, `size` (5/10/20 Marla or Commercial), `type`, `status` (Available, Reserved, Sold, Unknown; a sample value), `dev_class` (High, Medium, Low: share of built plots within 150 m, `built_share_150m`), `built` (a building footprint stands on the plot), `built_source`, `storeys`, `height` (m), `height_source` (`assumed`), `source`, `confidence`, `lat`, `lon`, `area_m2`, `layout` (`FDA City plan (emap.pk), registered to the streets`, `Gap in a row of the plan (outline not readable)`, or `Generated in the street block`; with `--sheets`: `Official block map`), `accuracy`.
 
-**The layout follows the FDA City plan published on emap.pk, registered to the real streets (0.65 m median). 13,369 plots in Blocks A to F and X; 13,335 are outlines from the plan; plot numbers are the ones printed on it (OCR, about 90% read); sub-blocks are estimated. Built / vacant and the development class come from building footprints; status and storeys are samples.** Real plot records and model output will replace them with the same file and property names; the map code should not need changes. Block letters A–F follow the official layout (A, B, C north-west of the 202 ft boulevard, F, E, D south-east); the split points between blocks are approximate. Block A follows its own block map: Markazi Park (74.76 kanal), Girls and Boys High Schools, post office / police station / telephone exchange, Jamia Masjid, community centre, five star hotel site, commercial zone, hospital, fire brigade, PMU office and parks A-1 to A-7.
+**The layout follows the FDA City plan published on emap.pk, registered to the real streets (0.65 m median). 13,059 plots in Blocks A to F and X; 13,057 are outlines from the plan; plot numbers are the ones printed on it (OCR: 94.5% numbered, about 96% of those right); sub-blocks are estimated. Built / vacant and the development class come from building footprints; status and storeys are samples.** Real plot records and model output will replace them with the same file and property names; the map code should not need changes. Block letters A–F follow the official layout (A, B, C north-west of the 202 ft boulevard, F, E, D south-east); the split points between blocks are approximate. Block A follows its own block map: Markazi Park (74.76 kanal), Girls and Boys High Schools, post office / police station / telephone exchange, Jamia Masjid, community centre, five star hotel site, commercial zone, hospital, fire brigade, PMU office and parks A-1 to A-7.
 
 ## Rules that come from the project documents
 
@@ -95,7 +97,7 @@ Plot properties: `id`, `plot_no` (block and the number printed on the plan, e.g.
 
 ## Known gaps
 
-- Plots come from emap.pk (a third-party redraw of the FDA plan); about 10% have no readable number, some numbers are OCR errors, sub-blocks are estimated, and the building footprints date from about 2023. See `HANDOVER.md` sections 9 to 11 for the audit figures and the next steps.
+- Plots come from emap.pk (a third-party redraw of the FDA plan); 5.5% have no readable number, about 4% of numbers are OCR errors, sub-blocks are estimated, and the building footprints date from about 2023. See `HANDOVER.md` sections 9 to 11 for the audit figures and the next steps.
 - `plot.html` and the top search bar still use the 60-plot `PLOTS` sample from `app.js`, so they do not know the map plots. The map side panel shows full details itself and links only to `trends.html`. Mursaleen to decide how `plot.html` should load from `data/plots.geojson`.
 - `assets/bg.js` throws a `drawImage` TypeError at line 698 on every page when its background image is not yet loaded (pre-existing on `main`, harmless but noisy).
 - Report and README say React.js and scikit-learn; the actual UI is plain HTML/JS and the model plan is PyTorch. Some diagrams still mention plot comparison.
