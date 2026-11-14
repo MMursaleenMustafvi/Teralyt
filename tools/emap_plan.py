@@ -14,6 +14,7 @@ Stages (each caches its result in tools/source/cache/emap/, delete a file to red
   4. register  displacement field: local shift of the plan against the OpenStreetMap streets,
                measured in overlapping 260 m windows, outliers removed, smoothed
   5. ocr       read the plot number printed in each cell (Tesseract)
+  5b. rapid    read them again with RapidOCR (tools/rapid_ocr.py, run in a Python with rapidocr_onnxruntime)
   6. digits    read them again with a digit recogniser trained on the map's own print (from Tesseract's sure
                readings) and correct them with their neighbours (plots in a row are numbered one after the other)
   7. write     tools/source/emap_layout.json (cells in lon/lat, registered) and emap_road.png
@@ -674,6 +675,19 @@ def run_tesseract(items):
     return res
 
 
+def rapid():
+    """Read the number crops with RapidOCR, in a Python that has rapidocr_onnxruntime (TERRALYT_RAPID_PY, else
+    `py -3.12`). Skipped with a message when none is installed; the other readers still work."""
+    exe = os.environ.get("TERRALYT_RAPID_PY")
+    cmd = [exe] if exe else ["py", "-3.12"]
+    try:
+        r = subprocess.run(cmd + ["-I", os.path.join(HERE, "rapid_ocr.py"), os.path.join(CACHE, "crops.pkl"), os.path.join(CACHE, "rapid.json")],
+                           capture_output=True, text=True)
+        print("\n".join(l for l in r.stdout.splitlines() if not l.startswith("  ")) or r.stderr[-500:])
+    except FileNotFoundError:
+        print("rapid: no Python with rapidocr_onnxruntime found (pip install rapidocr_onnxruntime); skipped")
+
+
 def split_glyphs(img):
     """digit shapes of a crop (black on white), left to right: list of (x0, x1, normalised 16x24 image)"""
     ink = img < 128
@@ -826,21 +840,43 @@ def digits():
     # 3. one reading per cell: Tesseract when confident, else the recogniser when it is sure
     raw = {}
     turn_of = {}
+    # RapidOCR (tools/rapid_ocr.py, run in the Python that has rapidocr_onnxruntime) when its readings exist
+    rp = {}
+    rf = os.path.join(CACHE, "rapid.json")
+    if os.path.exists(rf):
+        for k, v in json.load(open(rf)).items():
+            best = None
+            for t, (txt, sc) in v.items():
+                txt = txt.strip()
+                if txt and all(ch in "0123456789" for ch in txt) and len(txt) <= 4 and txt[0] != "0" and (best is None or sc > best[1]):
+                    best = (int(txt), sc, int(t))
+            if best and best[1] >= 0.6:
+                rp[int(k)] = best
+        print(f"digits: {len(rp)} RapidOCR readings")
+    cand_of = {}
     for k, img, ng in crops:
-        o, q = oc.get(k), knn.get(k)
-        if o and o["conf"] >= 80 and (q is None or q[0] == o["no"] or o["conf"] >= 90):
-            raw[k] = (o["no"], "ocr")
-            turn_of[k] = o["turn"]
-        elif q and q[2] >= 4 and q[1] < 3.2:
-            raw[k] = (q[0], "glyphs")
-            turn_of[k] = q[3]
-        elif o and o["conf"] >= 50:
-            raw[k] = (o["no"], "ocr-low")
-            turn_of[k] = o["turn"]
+        o, q, r = oc.get(k), knn.get(k), rp.get(k)
+        votes = {}
+
+        def vote(v, w, how, t):
+            e = votes.setdefault(v, [0.0, how, t])
+            e[0] += w + (0.3 if len(str(v)) == ng else 0.0) * (e[0] == 0)
+        if o and o["conf"] >= 50:
+            vote(o["no"], o["conf"] / 100, "ocr" if o["conf"] >= 80 else "ocr-low", o["turn"])
+        if q and q[2] >= 4 and q[1] < 3.2:
+            vote(q[0], 0.75, "glyphs", q[3])
+        if r:
+            vote(r[0], r[1] * 1.1, "rapidocr", r[2])
+        if not votes:
+            continue
+        cand_of[k] = votes
+        v, (w, how, t) = max(votes.items(), key=lambda kv: kv[1][0])
+        raw[k] = (v, how)
+        turn_of[k] = t
     imgs = {k: img for k, img, _ in crops}
     n_one = 0
     for k in list(raw):
-        if k in turn_of:
+        if k in turn_of and raw[k][1] != "rapidocr":
             st = str(raw[k][0])
             fixed = narrow_ones(st, np.ascontiguousarray(np.rot90(imgs[k], turn_of[k])))
             if fixed != st:
@@ -850,6 +886,8 @@ def digits():
     alts = {k: {oc[k]["no"]} | {a[0] for a in oc[k].get("alt", [])} if k in oc else set() for k, _, _ in crops}
     for k, q in knn.items():
         alts.setdefault(k, set()).add(q[0])
+    for k, r in rp.items():
+        alts.setdefault(k, set()).add(r[0])
     print(f"digits: {len(raw)} cells with a reading ({sum(1 for v in raw.values() if v[1] == 'glyphs')} from the recogniser)")
     # 4. neighbours: cells touching each other
     from shapely.geometry import Polygon
@@ -923,6 +961,21 @@ def digits():
 
     def support(k, n):
         return sum(1 for j in row_nb[k] if j in num and abs(num[j] - n) == 1)
+    n_pick = 0
+    for _ in range(3):                                   # the readers disagree: take the reading its row agrees with
+        for k, votes in cand_of.items():
+            if len(votes) < 2:
+                continue
+            cur = num.get(k)
+            here = support(k, cur) if cur else 0
+            best = max(votes, key=lambda v: (support(k, v), votes[v][0]))
+            if best != cur and support(k, best) > here:
+                num[k] = best
+                src[k] = votes[best][1]
+                turn_of[k] = votes[best][2]
+                good.add(k)
+                n_pick += 1
+    print(f"digits: {n_pick} cells where the readers disagreed took the reading their row agrees with")
     conf = {"1": "47", "4": "1", "7": "1", "3": "8", "8": "3069", "5": "6", "6": "589", "0": "8", "9": "86", "2": "7"}
     rot = {"0": "0", "1": "1", "8": "8", "6": "9", "9": "6"}
     n_sw = n_fill = n_rot = 0
@@ -1065,7 +1118,7 @@ def write():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stages", default="fetch,cells,split,roads,register,ocr,digits,write")
+    ap.add_argument("--stages", default="fetch,cells,split,roads,register,ocr,rapid,digits,write")
     a = ap.parse_args()
     os.makedirs(CACHE, exist_ok=True)
     for st in a.stages.split(","):
