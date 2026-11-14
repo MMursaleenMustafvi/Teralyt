@@ -22,6 +22,7 @@ usage:  python -I tools/emap_plan.py [--stages fetch,cells,roads,register,ocr,wr
 needs:  numpy scipy pillow opencv-python-headless shapely; Tesseract (winget install UB-Mannheim.TesseractOCR)
 """
 import argparse
+from collections import Counter
 import concurrent.futures as cf
 import json
 import math
@@ -142,8 +143,6 @@ def masks(a):
     rgb = a[..., :3].astype(np.int16)
     mx, mn = rgb.max(2), rgb.min(2)
     s = rgb.sum(2).astype(np.float32)
-    loc = ndi.maximum_filter(s, size=7)
-    D = np.clip(1 - s / np.maximum(loc, 1), 0, 1)
     dark = (mx < 110) & al
     core = ndi.binary_opening(dark, structure=np.ones((3, 3)))
     lab, n = ndi.label(core)
@@ -151,7 +150,30 @@ def masks(a):
     for i, sl in enumerate(ndi.find_objects(lab)):
         keep[i + 1] = max(sl[0].stop - sl[0].start, sl[1].stop - sl[1].start) <= 60
     glyph = ndi.binary_dilation(keep[lab], iterations=2) & ndi.binary_dilation(dark)
-    D2 = np.where(glyph, 0, D)
+    gcore = ndi.binary_dilation(keep[lab], iterations=1)        # the strokes themselves
+    # white numbers on the red commercial plots: small bright shapes surrounded by red (not the grey road)
+    red = (np.abs(rgb - np.array([220, 38, 28])).sum(2) < 90) & al
+    white = (mn > 238) & al
+    wl, wn = ndi.label(white)
+    if wn:
+        ring = ndi.binary_dilation(white, iterations=3) & ~ndi.binary_dilation(white, iterations=1)   # past the anti-aliased edge
+        idx = np.arange(1, wn + 1)
+        near_lab = ndi.grey_dilation(wl, size=7)
+        tot = ndi.sum(ring, near_lab, idx)
+        on_red = ndi.sum(ring & red, near_lab, idx)
+        okw = np.zeros(wn + 1, bool)
+        for i, sl in enumerate(ndi.find_objects(wl)):
+            if sl is not None and max(sl[0].stop - sl[0].start, sl[1].stop - sl[1].start) <= 70 and tot[i] > 0 and on_red[i] / tot[i] > 0.5:
+                okw[i + 1] = True
+        lglyph = ndi.binary_dilation(okw[wl], iterations=1) & (white | ndi.binary_dilation(white))
+        glyph |= lglyph
+        gcore |= lglyph
+        # white digits must not make the red around them look dark: clamp only pixels brighter than the red fill,
+        # so a dark divider line beside a digit stays dark
+        s = np.where(ndi.binary_dilation(lglyph, iterations=2) & (s > 286.0), 286.0, s)
+    loc = ndi.maximum_filter(s, size=7)
+    D = np.clip(1 - s / np.maximum(loc, 1), 0, 1)
+    D2 = np.where(gcore, 0, D)
     R = np.max([cv2.filter2D(D2, -1, k) for k in KERNELS], 0)
     line = ((R > 0.10) & ((D2 > 0.04) | glyph)) | (dark & ~glyph)
     road = al & (mx - mn < 16) & (mx > 185) & ~glyph      # grey road space and white label boxes
@@ -210,6 +232,111 @@ def cells():
             print(f"  cells: window {tx},{ty}: {len(out_cells)} cells, {len(out_sites)} large shapes so far", flush=True)
     json.dump({"cells": out_cells, "sites": out_sites}, open(os.path.join(CACHE, "cells.json"), "w"))
     print(f"cells: {len(out_cells)} plot-sized outlines, {len(out_sites)} larger shapes")
+
+
+def number_groups(a, ring_local, fill_rgb):
+    """centres (local px) of the separate numbers printed inside a cell"""
+    h, w = a.shape[:2]
+    m = np.zeros((h, w), np.uint8)
+    cv2.fillPoly(m, [cv2.convexHull(np.round(np.array(ring_local)).astype(np.int32))], 1)
+    m = m.astype(bool)
+    rgb = a[..., :3].astype(np.int16)
+    if sum(fill_rgb) < 330:
+        ink = rgb.min(2) > 200
+    else:
+        ink = (rgb.sum(2) < 0.62 * float(sum(fill_rgb))) | (rgb.max(2) < 120)
+    ink = ndi.binary_opening(ink & (a[..., 3] > 200), structure=np.ones((2, 2)))
+    lab, n = ndi.label(ink)
+    if n == 0:
+        return []
+    idx = np.arange(1, n + 1)
+    sizes = ndi.sum(ink, lab, idx)
+    cyx = ndi.center_of_mass(ink, lab, idx)
+    objs = ndi.find_objects(lab)
+    ids = [i for i in range(n) if sizes[i] >= 8 and max(objs[i][0].stop - objs[i][0].start, objs[i][1].stop - objs[i][1].start) <= 70
+           and m[int(round(cyx[i][0])), int(round(cyx[i][1]))]]
+    if not ids:
+        return []
+    big = max(sizes[i] for i in ids)
+    ids = [i for i in ids if sizes[i] >= 0.25 * big]
+    hmed = float(np.median([max(objs[i][0].stop - objs[i][0].start, objs[i][1].stop - objs[i][1].start) for i in ids]))
+    groups, left = [], set(ids)
+    while left:
+        g, todo = {left.pop()}, None
+        todo = list(g)
+        while todo:
+            j = todo.pop()
+            for i in list(left):
+                if math.hypot(cyx[i][0] - cyx[j][0], cyx[i][1] - cyx[j][1]) <= 0.95 * hmed:
+                    left.discard(i)
+                    g.add(i)
+                    todo.append(i)
+        groups.append(g)
+    return [(float(np.mean([cyx[i][1] for i in g])), float(np.mean([cyx[i][0] for i in g])), sum(sizes[i] for i in g)) for g in groups]
+
+
+def split():
+    """The plan sometimes prints two plots in one outline (no line between them, two numbers inside). Such a cell is
+    about twice the size of its neighbours: cut it halfway between its two numbers."""
+    from shapely.geometry import Polygon, LineString
+    from shapely.ops import split as cut
+    from shapely.strtree import STRtree
+    data = json.load(open(os.path.join(CACHE, "cells.json")))
+    cells_ = data["cells"]
+    polys = [Polygon(c["ring"]).convex_hull for c in cells_]
+    tree = STRtree(polys)
+    out, n_split = [], 0
+    for k, c in enumerate(cells_):
+        pg = polys[k]
+        nb = [polys[j].area for j in tree.query(pg.buffer(16)) if j != k and polys[j].distance(pg) < 16 and 0.3 < polys[j].area / pg.area < 1.2]
+        ratio = pg.area / float(np.median(nb)) if len(nb) >= 2 else 1.0
+        if not (1.6 <= ratio <= 4.5) or colour_class(c["rgb"]) not in ("purple", "green", "yellow", "red", "pink"):
+            out.append(c)
+            continue
+        x0, y0, x1, y1 = c["bbox"]
+        tx0, ty0, tx1, ty1 = (x0 - 8) // 256, (y0 - 8) // 256, (x1 + 8) // 256, (y1 + 8) // 256
+        a = window(tx0, ty0, tx1 - tx0 + 1, ty1 - ty0 + 1)
+        ox, oy = tx0 * 256, ty0 * 256
+        gs = number_groups(a, [[x - ox - 0.5, y - oy - 0.5] for x, y in c["ring"]], c["rgb"])
+        gs = [g for g in gs if g[2] >= 0.35 * max(q[2] for q in gs)] if gs else []
+        k_ = len(gs)
+        if k_ < 2 or not (0.7 * k_ <= ratio <= 1.6 * k_):
+            out.append(c)
+            continue
+        # order the numbers along the line through them; cut halfway between each pair of neighbours
+        P_ = np.array([[g[0], g[1]] for g in gs])
+        ctr = P_.mean(0)
+        u = np.linalg.svd(P_ - ctr)[2][0]
+        order = np.argsort((P_ - ctr) @ u)
+        P_ = P_[order] + [ox, oy]
+        whole = Polygon(c["ring"]).buffer(0)
+        L = 10 * (abs(x1 - x0) + abs(y1 - y0))
+        nvec = np.array([-u[1], u[0]])
+        parts, rest, ok = [], whole, True
+        for i in range(k_ - 1):
+            m_ = (P_[i] + P_[i + 1]) / 2
+            line = LineString([tuple(m_ - nvec * L), tuple(m_ + nvec * L)])
+            pieces = list(cut(rest, line).geoms) if not rest.is_empty else []
+            if len(pieces) != 2:
+                ok = False
+                break
+            first = min(pieces, key=lambda q: np.hypot(*(np.array(q.centroid.coords[0]) - P_[i])))
+            parts.append(first)
+            rest = [q for q in pieces if q is not first][0]
+        parts.append(rest)
+        if not ok or any(q.area < 0.5 * whole.area / k_ for q in parts):
+            out.append(c)
+            continue
+        for p in parts:
+            p = p.simplify(0.8)
+            r = [[round(float(x), 2), round(float(y), 2)] for x, y in list(p.exterior.coords)[:-1]]
+            bx0, by0, bx1, by1 = p.bounds
+            out.append(dict(c, ring=r, area=round(float(c["area"] * p.area / whole.area), 1), split=True,
+                            bbox=[int(bx0), int(by0), int(math.ceil(bx1)), int(math.ceil(by1))]))
+        n_split += 1
+    data["cells"] = out
+    json.dump(data, open(os.path.join(CACHE, "cells.json"), "w"))
+    print(f"split: {n_split} outlines with two plots (two numbers, no line between them) cut in two; {len(out)} cells now")
 
 
 # ------------------------------------------------------------------------------------------------
@@ -556,16 +683,38 @@ def split_glyphs(img):
     objs = ndi.find_objects(lab)
     sizes = ndi.sum(ink, lab, np.arange(1, n + 1))
     out = []
-    for i, sl in enumerate(objs):
-        if sizes[i] < 0.12 * sizes.max():
-            continue
-        g = (lab[sl] == i + 1)
+
+    def norm(g):
         h, w = g.shape
         side_w = max(w, int(h * 0.75))
         box = np.zeros((h, side_w), np.float32)
         x0 = (side_w - w) // 2
         box[:, x0:x0 + w] = g
-        out.append((sl[1].start, sl[1].stop, cv2.resize(box, (16, 24), interpolation=cv2.INTER_AREA)))
+        return cv2.resize(box, (16, 24), interpolation=cv2.INTER_AREA)
+    hs = [sl[0].stop - sl[0].start for i, sl in enumerate(objs) if sizes[i] >= 0.12 * sizes.max()]
+    hmax = max(hs) if hs else 1
+    for i, sl in enumerate(objs):
+        if sizes[i] < 0.12 * sizes.max():
+            continue
+        g = (lab[sl] == i + 1)
+        h, w = g.shape
+        k = int(round(w / (0.62 * max(h, 0.8 * hmax)))) if h >= 0.6 * hmax else 1
+        if k >= 2:
+            # digits that touch: cut at the thinnest columns near the even split points
+            col = g.sum(0).astype(float)
+            cuts = []
+            for j in range(1, k):
+                c0 = int(w * j / k)
+                lo, hi = max(1, c0 - w // (3 * k)), min(w - 1, c0 + w // (3 * k) + 1)
+                cuts.append(lo + int(np.argmin(col[lo:hi])) if hi > lo else c0)
+            edges = [0] + cuts + [w]
+            for a, b in zip(edges[:-1], edges[1:]):
+                part = g[:, a:b]
+                rows = np.nonzero(part.any(1))[0]
+                if b - a >= 2 and len(rows):
+                    out.append((sl[1].start + a, sl[1].start + b, norm(part[rows[0]:rows[-1] + 1])))
+            continue
+        out.append((sl[1].start, sl[1].stop, norm(g)))
     out.sort(key=lambda t: t[0])
     # a digit can come apart into two pieces stacked one over the other: merge pieces that overlap in x
     merged = []
@@ -574,6 +723,34 @@ def split_glyphs(img):
             continue
         merged.append(g)
     return merged
+
+
+def glyph_ratios(img):
+    """width / height of each digit shape of a crop, left to right"""
+    ink = img < 128
+    lab, n = ndi.label(ink)
+    if n == 0:
+        return []
+    objs = ndi.find_objects(lab)
+    sizes = ndi.sum(ink, lab, np.arange(1, n + 1))
+    out = sorted((sl[1].start, (sl[1].stop - sl[1].start) / max(1, sl[0].stop - sl[0].start)) for i, sl in enumerate(objs) if sizes[i] >= 0.12 * sizes.max())
+    return [r for _, r in out]
+
+
+def narrow_ones(st, img):
+    """In this font a 1 is a narrow stroke (0.40 to 0.55 as wide as tall), a 4 or a 7 is wide (0.6 to 0.8):
+    a 4 or 7 narrower than 0.56 is a misread 1."""
+    r = glyph_ratios(img)
+    if len(r) != len(st):
+        return st
+    out = []
+    for i, (ch, q) in enumerate(zip(st, r)):
+        others = [r[j] for j in range(len(st)) if j != i and st[j] != "1"]
+        if ch in "47" and (q < 0.56 and q < 0.78 * float(np.median(others)) if others else q < 0.5):
+            out.append("1")                    # clearly narrower than the other digits of the same number
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 def digits():
@@ -588,8 +765,9 @@ def digits():
         o = oc.get(k)
         if not o or o["conf"] < 88:
             continue
-        gl = split_glyphs(np.ascontiguousarray(np.rot90(img, o["turn"])))
-        s = str(o["no"])
+        up = np.ascontiguousarray(np.rot90(img, o["turn"]))
+        gl = split_glyphs(up)
+        s = narrow_ones(str(o["no"]), up)
         if len(gl) != len(s):
             continue
         for (_, _, g), d in zip(gl, s):
@@ -647,14 +825,28 @@ def digits():
         print(f"  digits: {min(b0 + 2000, len(crops))}/{len(crops)}", flush=True)
     # 3. one reading per cell: Tesseract when confident, else the recogniser when it is sure
     raw = {}
+    turn_of = {}
     for k, img, ng in crops:
         o, q = oc.get(k), knn.get(k)
         if o and o["conf"] >= 80 and (q is None or q[0] == o["no"] or o["conf"] >= 90):
             raw[k] = (o["no"], "ocr")
+            turn_of[k] = o["turn"]
         elif q and q[2] >= 4 and q[1] < 3.2:
             raw[k] = (q[0], "glyphs")
+            turn_of[k] = q[3]
         elif o and o["conf"] >= 50:
             raw[k] = (o["no"], "ocr-low")
+            turn_of[k] = o["turn"]
+    imgs = {k: img for k, img, _ in crops}
+    n_one = 0
+    for k in list(raw):
+        if k in turn_of:
+            st = str(raw[k][0])
+            fixed = narrow_ones(st, np.ascontiguousarray(np.rot90(imgs[k], turn_of[k])))
+            if fixed != st:
+                raw[k] = (int(fixed), raw[k][1])
+                n_one += 1
+    print(f"digits: {n_one} readings with a narrow 1 read as 4 or 7, corrected")
     alts = {k: {oc[k]["no"]} | {a[0] for a in oc[k].get("alt", [])} if k in oc else set() for k, _, _ in crops}
     for k, q in knn.items():
         alts.setdefault(k, set()).add(q[0])
@@ -715,6 +907,76 @@ def digits():
         print(f"  digits: pass {it + 1}: {changed} numbers set from their neighbours")
         if not changed:
             break
+    # row neighbours: plots side by side in a row share a long side; the numbering runs along the row
+    row_nb = {}
+    for k in text_cells:
+        pg = polys[k]
+        mrr = pg.minimum_rotated_rectangle
+        cs = list(mrr.exterior.coords)
+        long_side = max(math.dist(cs[0], cs[1]), math.dist(cs[1], cs[2]))
+        out_ = []
+        for j in nb[k]:
+            shared = pg.buffer(6).intersection(polys[j].buffer(6)).area / 12.0
+            if shared >= 0.55 * long_side:
+                out_.append(j)
+        row_nb[k] = out_
+
+    def support(k, n):
+        return sum(1 for j in row_nb[k] if j in num and abs(num[j] - n) == 1)
+    conf = {"1": "47", "4": "1", "7": "1", "3": "8", "8": "3069", "5": "6", "6": "589", "0": "8", "9": "86", "2": "7"}
+    rot = {"0": "0", "1": "1", "8": "8", "6": "9", "9": "6"}
+    n_sw = n_fill = n_rot = 0
+    # a number made only of 0 1 6 8 9 reads as a different number upside down: the numbers around it are printed the
+    # same way up, so take their turn
+    for k in list(num):
+        st = str(num[k])
+        if k not in turn_of or not all(ch in rot for ch in st):
+            continue
+        other = "".join(rot[ch] for ch in reversed(st))
+        if other == st or other[0] == "0":
+            continue
+        ts = [turn_of[j] for j in nb[k] if j in turn_of and not all(ch in rot for ch in str(num.get(j, "")))]
+        if len(ts) >= 2:
+            maj = Counter(ts).most_common(1)[0][0]
+            if (turn_of[k] - maj) % 4 == 2 and Counter(ts)[maj] >= 0.6 * len(ts):
+                num[k] = int(other)
+                src[k] = "read the same way up as its neighbours"
+                n_rot += 1
+    for _ in range(3):
+        for k in text_cells:
+            cur = num.get(k)
+            here = support(k, cur) if cur else 0
+            if here >= 2 or (cur is not None and any(j in num and abs(num[j] - cur) == 2 for j in row_nb[k])):
+                continue                                  # (rows numbered in steps of two: 63, 65, 67)
+            cands = set()
+            if cur:
+                st = str(cur)
+                for i, ch in enumerate(st):
+                    for alt_ch in conf.get(ch, ""):
+                        cands.add(st[:i] + alt_ch + st[i + 1:])
+                if all(ch in rot for ch in st):
+                    cands.add("".join(rot[ch] for ch in reversed(st)))       # read upside down
+            ns = sorted(num[j] for j in row_nb[k] if j in num)
+            for a_ in ns:
+                for b_ in ns:
+                    if b_ - a_ == 2:
+                        cands.add(str(a_ + 1))                             # between n-1 and n+1 in its row
+            best = None
+            for c_ in cands:
+                if not c_ or c_[0] == "0":
+                    continue
+                sup = support(k, int(c_))
+                if sup >= 2 and sup > here and (best is None or sup > best[1]):
+                    best = (int(c_), sup)
+            if best:
+                if cur is None:
+                    n_fill += 1
+                else:
+                    n_sw += 1
+                num[k] = best[0]
+                src[k] = "corrected by its neighbours" if cur else "between its neighbours in the row"
+                good.add(k)
+    print(f"digits: {n_rot} numbers turned the same way up as their neighbours, {n_sw} corrected and {n_fill} unread numbers filled from the plots on both sides in the row")
     final = {}
     for k in text_cells:
         if k in num:
@@ -803,7 +1065,7 @@ def write():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stages", default="fetch,cells,roads,register,ocr,digits,write")
+    ap.add_argument("--stages", default="fetch,cells,split,roads,register,ocr,digits,write")
     a = ap.parse_args()
     os.makedirs(CACHE, exist_ok=True)
     for st in a.stages.split(","):
