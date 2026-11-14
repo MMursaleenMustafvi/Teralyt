@@ -30,8 +30,8 @@ const COLORS = {
   sat: { built: '#9c8a72', vacant: '#ddd2b2' },
   size: { '5 Marla': '#8fd16a', '10 Marla': '#ee8fb8', '20 Marla': '#7fa6e6', 'Commercial': '#f0a040' }
 };
-const KIND_LABEL = { highschool: 'High school', postoffice: 'Post office, police station, telephone exchange', community: 'Community centre', hotel: 'Hotel site', firestation: 'Fire brigade', office: 'Office', shops: 'Shops', dispensary: 'Dispensary', homes: 'FDA City Homes', metro: 'Metro store', sewerage: 'Sewerage works', nala: 'Storm drain (nalla)', mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
-const KIND_COLOR = { highschool: '#a5533a', postoffice: '#8a3b3b', community: '#8a6d3b', hotel: '#2e6fb6', firestation: '#c3392b', office: '#4a5a8a', shops: '#2e6fb6', dispensary: '#c3392b', homes: '#b5651d', metro: '#0b3a7a', sewerage: '#4a6a7a', nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
+const KIND_LABEL = { highschool: 'High school', postoffice: 'Post office, police station, telephone exchange', community: 'Community centre', hotel: 'Hotel site', firestation: 'Fire brigade', office: 'Office', shops: 'Shops', dispensary: 'Dispensary', homes: 'FDA City Homes', metro: 'Metro store', sewerage: 'Sewerage works', nala: 'Storm drain (nalla)', mosque: 'Mosque', school: 'School', playground: 'Playground', commercial: 'Commercial', park: 'Park', hospital: 'Hospital', sports: 'Sports', civic: 'Public building', university: 'University', stadium: 'Stadium', cinema: 'Cinema', multipurpose: 'Multi-purpose', site: 'Reserved site', grid: 'Grid station', graveyard: 'Graveyard', cng: 'CNG', shrine: 'Shrine', gate: 'Main gate', roundabout: 'Roundabout' };
+const KIND_COLOR = { highschool: '#a5533a', postoffice: '#8a3b3b', community: '#8a6d3b', hotel: '#2e6fb6', firestation: '#c3392b', office: '#4a5a8a', shops: '#2e6fb6', dispensary: '#c3392b', homes: '#b5651d', metro: '#0b3a7a', sewerage: '#4a6a7a', nala: '#2b7fc4', mosque: '#2e8a57', school: '#a5533a', playground: '#5aa647', commercial: '#2e6fb6', park: '#3f8f3f', hospital: '#c3392b', sports: '#0e6e8a', civic: '#8a6d3b', university: '#7a2e1d', stadium: '#1d6b3c', cinema: '#6d4fa0', multipurpose: '#2d3b6b', site: '#b5651d', grid: '#b08a1a', graveyard: '#55624a', cng: '#1d6b3c', shrine: '#2e8a57', gate: '#8a6d3b', roundabout: '#3f8f3f' };
 
 export function Society3D(el, opts = {}) {
   opts = Object.assign({ dataUrl: 'data/', layer: 'cls', onPick: null, onHover: null, onStatus: null, audit: false }, opts);
@@ -503,7 +503,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     features.forEach((f, i) => {
       const p = f.properties, it = plotItem(f, i);
       p._i = i; p._c = it.c; p._ring = it.ring;
-      plotItems.push(it); api.plots.push(p); byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase(), p.id);
+      plotItems.push(it); api.plots.push(p); byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase().replace(/\s+/g, ''), p.id);
     });
     plotGeom = padGeometry(plotItems, Y.plotBase, Y.plotTop);
     plotMesh = new THREE.Mesh(plotGeom, new THREE.MeshStandardMaterial({ vertexColors: true, map: M.plotMap, roughness: .88, metalness: 0 }));
@@ -867,10 +867,17 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       for (const p of api.plots) { const d = Math.hypot(p._c[0] - e, p._c[1] - n); if (d < bd) { bd = d; best = p; } }
       return best && bd < 1500 ? [{ id: best.id, label: best.plot_no, sub: best.block + ' · ' + Math.round(bd) + ' m from the point' }] : [];
     }
+    const ad = q.toUpperCase().match(/^(\d{1,4})\s*,?\s*([A-FX])\s*-?\s*(\d)$/) || q.toUpperCase().match(/^([A-FX])\s*-?\s*(\d)\s*[-\s]\s*(\d{1,4})$/),
+      bn = q.toUpperCase().match(/^([A-FX])\s*-\s*(\d{1,4})$/);
+    if (ad || bn) {
+      const no = ad ? +(/^\d/.test(ad[1]) ? ad[1] : ad[3]) : +bn[2], sub = ad ? (/^\d/.test(ad[1]) ? ad[2] + ad[3] : ad[1] + ad[2]) : null, blk = bn ? bn[1] : sub[0];
+      const hit = api.plots.filter(p => p.plot_number === no && p.block.endsWith(' ' + blk) && (!sub || p.sub_block === sub));
+      if (hit.length) return hit.slice(0, 10).map(p => ({ id: p.id, label: p.plot_no, sub: p.block + (p.sub_block ? ' · sub-block ' + p.sub_block + ' (estimated)' : '') + ' · ' + p.size }));
+    }
     const n = q.toUpperCase().replace(/\s+/g, ''), out = [];
-    const ex = byNo.get(n) || byNo.get(n.replace(/^([A-F])(\d+)$/, '$1-$2'));
+    const ex = byNo.get(n) || byNo.get(n.replace(/^([A-FX])(\d+)$/, '$1-$2'));
     if (ex != null) { const p = byId.get(ex); out.push({ id: p.id, label: p.plot_no, sub: p.block + ' · ' + p.size + ' · ' + p.status }); }
-    const bm = q.match(/^(?:block\s*)?([a-fA-F])$/);
+    const bm = q.match(/^(?:block\s*)?([a-fxA-FX])$/);
     if (bm) out.push({ block: bm[1].toUpperCase(), label: 'Block ' + bm[1].toUpperCase(), sub: api.plots.filter(p => p.block.endsWith(' ' + bm[1].toUpperCase())).length + ' plots' });
     const words = q.toLowerCase().split(/\s+/);
     for (const lm of api.landmarks) {
@@ -879,7 +886,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       if (out.length >= 10) break;
     }
     if (out.length) return out.slice(0, 10);
-    const pref = n.replace(/^([A-F])(\d)/, '$1-$2');
+    const pref = n.replace(/^([A-FX])(\d)/, '$1-$2');
     for (const p of api.plots) { if (String(p.plot_no).toUpperCase().startsWith(pref)) { out.push({ id: p.id, label: p.plot_no, sub: p.block + ' · ' + p.size + ' · ' + p.status }); if (out.length >= 8) break; } }
     return out;
   }

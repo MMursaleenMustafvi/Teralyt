@@ -761,6 +761,8 @@ B.dispensary = (k, L, W) => {
 };
 
 B.homes = (k, L, W, lm) => reserved(k, L, W, lm, 'AREA FOR FDA CITY HOMES');
+// sites the newer plan reserves for government housing (Block X): open ground with a wall and the site's name board
+B.site = (k, L, W, lm) => reserved(k, L, W, lm, (lm && (lm.sign || lm.name) || 'RESERVED SITE').toUpperCase());
 
 B.metro = (k, L, W) => {
   const M = k.M;
