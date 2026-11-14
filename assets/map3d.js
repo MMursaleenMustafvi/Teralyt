@@ -154,7 +154,7 @@ function Map3D(elementId, opts) {
     for (const f of plots.features) {
       const p = f.properties, ring = f.geometry.coordinates[0];
       p._ring = ring; p._base = 0;
-      byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase(), p.id);
+      byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase().replace(/\s+/g, ''), p.id);
       api.plots.push(p);
       const b = blockSum[p.block] || (blockSum[p.block] = { x: 0, y: 0, n: 0 });
       b.x += p.lon; b.y += p.lat; b.n++;
@@ -293,14 +293,21 @@ function Map3D(elementId, opts) {
       for (const p of api.plots) { const d = Math.hypot((p.lat - lat) * 111320, (p.lon - lon) * 94900); if (d < bd) { bd = d; best = p; } }
       return best && bd < 1500 ? [{ id: best.id, label: best.plot_no, sub: best.block + ' · ' + Math.round(bd) + ' m from the point' }] : [];
     }
+    const ad = q.toUpperCase().match(/^(\d{1,4})\s*,?\s*([A-FX])\s*-?\s*(\d)$/) || q.toUpperCase().match(/^([A-FX])\s*-?\s*(\d)\s*[-\s]\s*(\d{1,4})$/),
+      bn = q.toUpperCase().match(/^([A-FX])\s*-\s*(\d{1,4})$/);
+    if (ad || bn) {
+      const no = ad ? +(/^\d/.test(ad[1]) ? ad[1] : ad[3]) : +bn[2], sub = ad ? (/^\d/.test(ad[1]) ? ad[2] + ad[3] : ad[1] + ad[2]) : null, blk = bn ? bn[1] : sub[0];
+      const hit = api.plots.filter(p => p.plot_number === no && p.block.endsWith(' ' + blk) && (!sub || p.sub_block === sub));
+      if (hit.length) return hit.slice(0, 10).map(p => ({ id: p.id, label: p.plot_no, sub: p.block + (p.sub_block ? ' · sub-block ' + p.sub_block + ' (estimated)' : '') + ' · ' + p.size }));
+    }
     const n = q.toUpperCase().replace(/\s+/g, '');
-    const exact = byNo.get(n) || byNo.get(n.replace(/^([A-F])(\d+)$/, '$1-$2'));
+    const exact = byNo.get(n) || byNo.get(n.replace(/^([A-FX])(\d+)$/, '$1-$2'));
     const out = [];
     if (exact != null) { const p = byId.get(exact); out.push({ id: p.id, label: p.plot_no, sub: p.block + ' · ' + p.size + ' · ' + p.status }); }
-    const bm = q.match(/^(?:block\s*)?([a-fA-F])$/);
+    const bm = q.match(/^(?:block\s*)?([a-fxA-FX])$/);
     if (bm) out.push({ block: bm[1].toUpperCase(), label: 'Block ' + bm[1].toUpperCase(), sub: api.plots.filter(p => p.block.endsWith(' ' + bm[1].toUpperCase())).length + ' plots' });
     if (out.length) return out;
-    const pref = n.replace(/^([A-F])(\d)/, '$1-$2');
+    const pref = n.replace(/^([A-FX])(\d)/, '$1-$2');
     for (const p of api.plots) { if (String(p.plot_no).toUpperCase().startsWith(pref)) { out.push({ id: p.id, label: p.plot_no, sub: p.block + ' · ' + p.size + ' · ' + p.status }); if (out.length >= 8) break; } }
     return out;
   }

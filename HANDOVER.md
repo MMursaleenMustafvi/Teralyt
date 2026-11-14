@@ -1,6 +1,6 @@
 # Terralyt 3D map: handover
 
-Updated 14 November 2026, on branch `feature/3d-map`. The commit that contains this file is the current state. Earlier states: `d2884cf` (before the plots were read from the block maps), `206b1f4` (first version with official plots, the gate and houses; it had zig-zag streets and odd plot shapes, fixed since).
+Updated 14 November 2026 (evening), on branch `feature/3d-map`. The commit that contains this file is the current state: **plots, plot numbers and Block X from the emap.pk plan** (section 7). Earlier states: `7aa34ae` (plots from the six fdacity.pk block maps, before emap.pk), `d2884cf` (before the plots were read from the block maps), `206b1f4` (first version with official plots, the gate and houses; it had zig-zag streets and odd plot shapes, fixed since).
 
 This file is for whoever continues the 3D map work in a new chat, with no access to the earlier conversation. It says what exists, how it was built, what has been checked, and what is still wrong or unverified. Read it together with `CLAUDE.md` in the same folder, which holds the project rules and the code reference. Where the two disagree, trust this file for the current state and `CLAUDE.md` for the rules.
 
@@ -51,7 +51,7 @@ Official maps he supplied:
 | --- | --- |
 | Repo on disk | `C:\Users\Taha\Teralyt` |
 | GitHub | `MMursaleenMustafvi/Teralyt`, branch `feature/3d-map` |
-| Latest code commit | `c802cae` (streets straightened, plot shapes cleaned), pushed; later commits only touch this file |
+| Latest code commit | The commit containing this file: plots from the emap.pk plan (`tools/emap_plan.py`) |
 | Pull request | Not opened yet |
 | `main` | Untouched by this work |
 | Cesium ion token | Not provided; the real-world tab has only been run with OpenStreetMap tiles and flat ground |
@@ -108,151 +108,94 @@ How to check one spot after a change: regenerate, then load the page and fly to 
 
 The code reference (function names, data schema, performance rules) is in `CLAUDE.md`.
 
-## 7. How the data was made
+## 7. How the data was made (since the evening of 14 November 2026)
 
-1. **Streets:** centrelines exported from OpenStreetMap (traced by its mappers on satellite imagery).
-2. **Named sites:** each park, mosque, school and zone is a pixel box on its sheet in `plan_features.json`, with the kanal area printed on the map where there is one. Sheets are georeferenced by control points (roundabout centres and parks).
-3. **Plots (new):** `trace_plots.py` downloads the six block maps, finds every small closed outline (a plot) by keeping only long straight lines, so that the printed plot numbers do not break the cells, and finds the white street corridors. It then **registers each sheet to the ground** by fitting the sheet's street centre lines to the OpenStreetMap streets (an affine fit, iterated). Fit quality: 1.9 to 3.0 m rms per sheet, and the median error in every part of every sheet is below about 2 m.
-4. **Generation:** `make_data.py` splits the land into faces of the road network, carves each named site out to its official area (plot cells are protected), and then:
-   - uses the **official plot outlines** wherever cells were read and lie on free society land (6,072 plots). Each outline is cleaned: a box on the block's axis, its own rectangle where the row is turned, or a polygon of at most five corners. Shapes with no neighbour of similar size are dropped as strays (124: pieces of lettering);
-   - where the print does not resolve single plots, splits the street block into plots of the official size, but only on land that some block map actually draws on (4,942 plots, including 262 plot-sized gaps in rows and 99 wider unread pieces, which are cut along the streets the sheet shows);
-   - **streets between the plots** (`corridor_lines` in `make_data.py`): the land left between the placed plots is thinned to its centre lines at 1 m; a line is kept where the corridor is 6 to 26 m wide and the block map shows street space there. Each is drawn as a 5 m carriageway in a 40 ft reserve, so a street has one width and runs straight between junctions (15.3 km in 178 pieces). Dead ends under 28 m and lone stubs are dropped;
-   - leaves society land that every block map shows blank as open ground (layer `open` in `blocks.geojson`), with no plots.
-   - Regeneration takes about 40 seconds.
-5. **Houses (new):** building footprints inside the society are matched to plots. A plot with a footprint is `built`; the footprint becomes a house model at its real position. Footprints that lie on a mapped road (11) or inside a named site are left out.
-6. **Development class (new):** share of built plots within 150 m of the plot: High from 30%, Medium from 8%, otherwise Low. This is a simple measured stand-in until the ML model exists.
-7. **Main gate (new):** position measured on Esri World Imagery (31.50934 N, 73.06941 E, where the Main Entrance Road leaves Sargodha Road); the official Block A map draws the gate across that road. It is a point feature in `landmarks.geojson`, centred between the two carriageways.
-8. **Measured sizes:** carriageway widths, roundabout sizes and the nalla were measured on Esri World Imagery at zoom 19 (0.25 m per pixel).
+**The plot layout now comes from the whole FDA City plan published on emap.pk**, not from the six fdacity.pk block maps. emap.pk (https://emap.pk/fda-city-faisalabad-map) shows a redraw of the FDA plan as map tiles over Google satellite at zoom 19 (about 0.25 m per pixel), with every plot outline and plot number printed sharply. It is a **newer revision** than the fdacity.pk maps: it has **Block X** in the north-east (where fdacity.pk shows "Multi-Purpose Uses" and a proposed university, stadium and IMAX theatre) and a 216-kanal graveyard at the north-east end of the boulevard. Taha compared both on 14 November and asked for every plot to be taken from it. It is a third-party redraw, not an FDA file; every plot says so in `layout`.
 
-Reference values:
+emap.pk's own placement on the satellite photo is off by about 4 m (up to 13 m in Block D), so its positions are not used as they are.
 
-- Local metre frame: equirectangular, origin 73.0875 E, 31.525 N, latitude of reference 31.525.
-- Roundabouts (lon, lat): A/B 73.082462, 31.520554; B/C 73.087766, 31.52568; Block A south-west 73.078424, 31.511277.
-- Boulevard bearing about 48.6 degrees. 1 kanal = 505.857 m².
+1. **`tools/emap_plan.py`** (stages `fetch, cells, roads, register, ocr, digits, write`; each caches in `tools/source/cache/emap/`, git-ignored; a full run takes about 30 minutes):
+   - `fetch`: downloads the 4,050 zoom-19 tiles.
+   - `cells`: every closed plot outline. Plot lines are told from the printed numbers and the watermark by being thin, straight and long (oriented line filters over 6 m); digits are thick short strokes. 14,503 outlines.
+   - `roads`: the plan's street space and plot colours, at 0.5 m.
+   - `register`: the plan's street space is matched to the OpenStreetMap streets in 1,523 overlapping 260 m windows; 391 outliers dropped; a smooth displacement field is fitted. Shift before: 3.7 m median, 8.2 m at the 95th percentile. Residual after: **0.65 m median, 1.7 m p95** (per block 0.51 to 0.72 m).
+   - `ocr`: the number in each cell, turned upright, read by Tesseract (`winget install UB-Mannheim.TesseractOCR`) in four turns.
+   - `digits`: a digit recogniser trained on Tesseract's sure readings re-reads the rest; neighbours then correct each other (plots in a row are numbered one after the other).
+   - `write`: `tools/source/emap_layout.json` (registered cells with numbers), `emap_road.png`, `emap_plotcol.png`.
+2. **`tools/make_data.py`** uses `emap_layout.json` when it exists (`--sheets` goes back to the fdacity.pk block maps):
+   - society land is what the plan draws (Motorway City stays a hole);
+   - every plan cell becomes a plot; where the road as built is a few metres wider than drawn, the plot is trimmed to the road edge instead of dropped;
+   - **streets**: OpenStreetMap where mapped; elsewhere the plan's own street space, thinned to centre lines (38 km). The "planned 40 ft streets" the generator used to invent are gone (0 now);
+   - Block X sites are read from the plan's colours (schools blue, masjids yellow, grid station grey, parks green, graveyard brown, the two government housing sites orange and pink, drawn as reserved land with a name board);
+   - plot numbers: misreads past a block's numbering range are corrected from neighbours (141) or left out (23). The plan numbers plots per sub-block, so numbers repeat inside a block: plot IDs are `D-108`, and where the number repeats, `D-108 (D2)` with the **estimated** sub-block (numbering areas rebuilt from the number sequences, named after the nearest "Park D-2"), plus a letter if it still repeats. `plot_number`, `sub_block`, `number_source` are in each plot;
+   - regeneration takes about 5.5 minutes.
+3. Houses, development class, the main gate, road widths and the nalla are made as before: building footprints from Overture Maps (Google Open Buildings 2023, Microsoft), gate and widths measured on Esri World Imagery.
 
-To regenerate and check (the first command is only needed when re-reading the sheets; it downloads them into `tools/source/cache/`, about 1 minute):
+To redo everything:
 
 ```powershell
-python -I tools/trace_plots.py --debug debug_out
+python -I tools/emap_plan.py            # only when re-reading the plan (about 30 minutes, needs Tesseract)
 python -I tools/make_data.py --preview preview.png
 python -I tools/audit.py
 ```
 
-`tools/trace_sheets.py` (the named sites of Blocks B to F) still needs working files that are not in the repo; its result is saved in `plan_features.json`, so normal regeneration does not need it.
-
-To refresh the building footprints: query Overture Maps `theme=buildings/type=building` for the bounding box 73.066, 31.501, 73.106, 31.542 (DuckDB with the httpfs and spatial extensions, bucket `s3://overturemaps-us-west-2/release/<release>/`), keep `sources[1].dataset`, and write the polygons to `tools/source/buildings_fda.geojson`.
+Reference values: local metre frame equirectangular, origin 73.0875 E, 31.525 N. Roundabouts (lon, lat): A/B 73.082462, 31.520554; B/C 73.087766, 31.52568; Block A south-west 73.078424, 31.511277. 1 kanal = 505.857 m².
 
 ## 8. Where each thing comes from
 
 | Thing | Source | Trust |
 | --- | --- | --- |
-| Block positions, the 120 named sites | Official block maps, georeferenced | Good; none invented |
-| Official area of 47 sites | Kanal figure printed on the maps | 37 within 25%, 10 too small |
-| 6,072 plot outlines (`layout: Official block map`) | Official block maps, registered to the real streets | Good to a few metres; checked over satellite imagery |
-| 4,942 plot outlines (`layout: Generated in the street block`) | Split of the street block at the official size | Not the real plots; the street block is real |
-| Plot numbers | Running numbers per block | Not the official numbers |
-| Official road widths (202, 110, 85, 60, 40 ft) | Official maps | Good |
-| Paved widths, roundabout sizes, nalla, main gate position | Measured on satellite imagery | Good |
-| Streets from OpenStreetMap | OpenStreetMap | Real streets |
-| Streets between plot groups (15.3 km) | Centre lines of the corridors between the placed plots, where the block map shows street space | Follow the official layout to a few metres; rougher in Block F |
-| 119 planned 40 ft street pieces | Inserted by the generator in generated street blocks | Not on any map |
-| Houses, `built`, `dev_class` | Building footprints detected on satellite imagery (Google Open Buildings 2023, Microsoft) | Real positions; the footprint data is about 3 years old, so newer houses are missing |
-| Storeys and house appearance | Assumed from footprint size | Not real |
-| Plot status | Sample values, labelled as such | Not real |
-| Society boundary | Built from the society parcels and sites | Approximate |
+| 13,263 plot outlines (`layout: FDA City plan (emap.pk), registered to the streets`) | emap.pk redraw of the FDA plan, registered to the OpenStreetMap streets | Good: fit residual 0.65 m median; checked over Google imagery in every block |
+| 72 plots (`Gap in a row of the plan`) | Plot-sized gaps in a plan row whose outline could not be read | Real gaps of the plan; outline approximate |
+| 34 plots (`Generated in the street block`) | Small leftovers split at the plan's size | Not real plots |
+| Plot numbers (`plot_number`) | Printed on the plan, read by OCR | 12,009 plots (90%) numbered; 856 not confirmed by a neighbour (said in `number_source`) |
+| Sub-block (`sub_block`) | Estimated from the numbering and the nearest park name | Estimate, labelled so |
+| Block X layout and sites | emap.pk plan (newer revision) | Not on the fdacity.pk maps; Zameen says the land is still being acquired |
+| Named sites of Blocks A to F | fdacity.pk block maps (unchanged) | Good |
+| Streets in OpenStreetMap | OpenStreetMap | Real |
+| Other streets (38 km) | The plan's street space | Follow the plan to under 1 m |
+| Houses, built / vacant, development class | Building footprints (about 2023) | Real positions, about 3 years old |
+| Storeys, look of houses, plot status | Assumed / sample | Not real |
 
-## 9. Audit results at this commit
+## 9. Audit results at this commit (14 November 2026, evening)
 
-Data audit (`tools/audit.py`, run on 14 November 2026 after the last regeneration):
+`tools/audit.py`:
 
 | Check | Result |
 | --- | --- |
-| Plots | 11,014 (official outlines 6,072, generated 4,942) |
-| Named sites | 120, plus the main gate |
-| Boundary area | 6.81 km² |
+| Plots | **13,369** (A 2,371, B 1,588, C 1,771, D 2,201, E 2,253, F 1,540, X 1,645) |
 | Plots overlapping a carriageway, right of way, the nalla, a site or another plot | 0 |
 | Plots outside the boundary | 0 |
-| Plots more than 6 m from any road reserve | 303 (2.8%), official outlines, about a third of them in Block F |
-| Plots 3 to 6 m from a road reserve (registration gap) | 29 |
-| Duplicate site names, overlapping sites | 0 |
-| Empty land patches over 600 m² | 0 |
-| Plots within 0.85 to 1.2 times their size class | 8,204 |
-| Plots smaller than 0.85 times | 2,140 (81 below 0.6 times) |
-| Plots larger than 1.2 times | 670 |
-| Plots that are not near-rectangular | 113 |
-| Plot outlines with four corners | 10,150 of 11,014 |
-| Sites under 400 m² | 4: Masjid (Park F-2), Dispensary (D), Shops (Park D-5), Park C-5 |
-| Main gate | Present; carriageway centre lines 8.5 m either side, span 30.2 m |
-| Buildings | 355 footprints; 236 built plots; 111 houses stand on land that is not a plot in the model; 0 on a carriageway |
+| Plots more than 6 m from any street | **32 (0.2%)** (was 303) |
+| Streets invented by the generator | 0 (was 130) |
+| Plan plot cells that became no plot | about 250 of 13,559: OpenStreetMap draws a road over the plan's first row (mostly the boulevard service roads) |
+| Empty land over 600 m² | 2 patches: 2.2 ha east of Block E (outside the plan, inside the outline) and 0.2 ha by the motorway |
+| Sites | 132 plus the main gate; 13 of them in Block X |
+| Plot numbers | 12,009 numbered; 856 of them not confirmed by a neighbour; 1,360 without a number |
+| Buildings | 492 footprints; 359 built plots; 0 on a carriageway |
 
-Plots per block (official outlines / generated): A 1,858 (1,151 / 707), B 1,629 (1,027 / 602), C 1,404 (775 / 629), D 2,149 (808 / 1,341), E 2,131 (1,596 / 535), F 1,843 (715 / 1,128).
+Browser test (headless Chrome, software rendering): page loads; 13,369 plots and 134 landmarks; model audit `?audit=1`: 0 parts outside their sites; Block X renders; search `12 F4`, `D-108`, `X-1450` finds the right plots; the side panel shows plot number, estimated sub-block, area in marla and the source. The old `bg.js` `drawImage` error is still there (not the map's).
 
-Built plots per block: A 127, B 9, C 1, D 9, E 6, F 84. Development class: Low 9,974, Medium 1,024, High 16.
-
-Sites more than 25% below their official area (official kanal, then modelled kanal): Commercial Zone 12.72 / 9.3; Commercial Centre (D) 6.5 / 3.3; Commercial Centre (E) 6.5 / 4.2; Park A-1 18.8 / 11.1; Park A-4 3.69 / 2.7; Park A-5 14.34 / 9.8; Park (4.51 kanal) 4.51 / 2.1; Park B-2 (north) 1.76 / 0.9; Park B-2 2.95 / 1.9; Park B-1 16.55 / 9.1.
-
-Browser tests (headless Chrome, software rendering, 14 November 2026):
-
-| Test | Result |
-| --- | --- |
-| Page loads, no errors from the map code | Yes, about 12 s (the old `bg.js` `drawImage` error is still there and is not the map's) |
-| Model audit `?audit=1` | 117 sites checked, 0 offenders |
-| Main gate | Renders across the entrance road; found by search, tour and `?lm=121` |
-| Houses | Render on their plots; clicking a house selects its plot |
-| Coordinates | Typing a plot's own latitude and longitude into search returns that plot (every 25th plot tested, 0 wrong) |
-| The five flaw screenshots Taha sent (zig-zag road, missing plot in a row, bare tan land, hexagon plots, odd road branches, all in Block A) | Each spot re-rendered in 3D and checked by eye: clean |
-| Satellite ground | Plots lie on the land between the real roads; 3D houses stand on the houses in the photo (checked by eye in Blocks A and E) |
-| Day, evening, night | All three render |
-| Real-world tab (CesiumJS) | Loaded with the earlier data on 13 November; not rerun after the last regeneration |
+Google check: each block's plots were drawn over Google satellite (zoom 19): plots lie between the real roads and built plots hold their house. Google and Esri imagery agree to about 1.2 m here.
 
 ## 10. Known flaws and things not verified
 
-Layout:
-
-- **4,942 plots are still generated,** because the print of the block maps is too coarse or too busy there (watermark, plot numbers touching the lines). Block F's sheet is 2.1 m per pixel and Block D's southern half uses very small plots; these two blocks have the most generated plots. Each plot says which kind it is.
-- **Plot numbers are running numbers,** not the official plot numbers. The official numbers are printed inside the cells and could be read with OCR; this has not been done.
-- **About 710 plot cells were read but not placed,** because they fall on a mapped road reserve or outside society land. The commercial rows along the boulevard are the main case; they are filled with generated plots instead.
-- **303 official plots (2.8%) have no street within 6 m.** A corridor is only drawn as a street when it is found between placed plots and confirmed by the sheet; where plots were not read the corridor is not found. Block F (coarse sheet, no confirmation possible) is the roughest: its new streets bend more and some stop at open ground.
-- **Streets found between plots are centre lines of the gaps,** simplified to 3 m. They are straight and of one width, but a junction can sit a few metres off.
-- **The whole map has not been checked spot by spot.** The five reported spots, one area in Block D and one in Block F were checked in 3D; the rest relies on the audit.
-- **Registration is good to a few metres, not exact.** Block A's sheet (1.23 m per pixel, curved streets) fits least tidily.
-- **Ten sites are too small** (list above).
-- **Block boundaries are approximate.** The split points between neighbouring blocks were chosen, not read from a map.
-- **No feature-by-feature overlay check of the named sites** has been done yet (section 11).
-
-Houses:
-
-- **The footprint data is from about 2023.** Houses built since then are missing. Google Earth could not be used directly (no programmatic access); Esri World Imagery and the open footprint datasets were used instead.
-- **111 houses stand on land that is not a plot in the model** (open land, generated green space, or the edge of the society). They are drawn but belong to no plot.
-- **House appearance and storeys are assumed.**
-
-Data honesty:
-
-- Plot status is a sample value. The panel now says "Sample value (no society record yet)" with confidence Low.
-- The development class is a simple count of nearby houses, not the ML model.
-
-Graphics:
-
-- **Buildings are still assembled from simple shapes** with textures drawn in code. No ready-made glTF models, photo textures or ambient occlusion have been added.
-- **Speed on real hardware is untested.** All testing used software rendering on Taha's PC.
-
-Integration:
-
-- **`plot.html` and the top search bar use an old 60-plot sample** in `assets/app.js`, so they do not match the map plots. These are Mursaleen's pages.
-- **The Cesium tab is untested with a token** (terrain and World Imagery), and it does not draw the houses or the gate.
-- **The report and README still say React and scikit-learn** and do not mention three.js.
+- **emap.pk is a third-party redraw** with its watermark. Ask FDA for the original plan (CAD or PDF) and rerun with it.
+- **Plot numbers are OCR**: about 10% of plots have none, and some numbers are still wrong (856 unconfirmed). Block A (76% numbered) and Block X (86%) have the smallest print.
+- **Sub-blocks are estimated**, not read.
+- **About 250 plan plots are not placed** where OpenStreetMap draws a road over the plan's first row (boulevard service roads, one 40 ft street in Block C, the main entrance road in Block A). Each needs a look on Google: either the road or the plan is right.
+- Block X site purposes come from the plan's labels only.
+- The Cesium tab is untested with a token and does not draw the houses or the gate.
+- `plot.html` and the top search bar still use the 60-plot sample in `assets/app.js` (Mursaleen's pages).
+- Buildings are simple shapes; speed on real hardware untested; the footprint data is from about 2023.
 
 ## 11. Suggested order for the next work
 
-1. Scan the whole map block by block in 3D for remaining layout flaws (Block F first), and fix them at the source. Taha asked for all inconsistencies in the whole map to be fixed; only the spots he sent and two more areas have been checked so far.
-2. Give the 303 official plots that have no street a street: find why their corridor was not detected (`corridor_lines` in `make_data.py`), most often because neighbouring plots were not read.
-3. Raise the share of official plot outlines: fetch higher-resolution block maps if they exist, or tune `trace_plots.py` per sheet (Blocks D and F first).
-4. Read the official plot numbers with OCR and replace the running numbers.
-5. Fix the boulevard corridor so the commercial rows read from the sheets can be placed.
-6. Overlay each block sheet on a top-down render and list every named site that is misplaced, missing or the wrong type. `trace_plots.py --debug` writes an overlay image per sheet.
-7. Check each of the ten undersized sites.
-8. Rerun `tools/audit.py` and the `?audit=1` model audit after any change.
-9. Test the page on the laptop that will be used for the viva.
+1. Taha: look at Block X and a few plots per block; send screenshots of anything wrong.
+2. Check the ~250 unplaced plan plots against Google (road or plan).
+3. Improve number reading for Blocks A and X (a better OCR model) and read the sub-block names printed on the plan.
+4. Replace emap.pk with the FDA's own plan if it can be obtained.
+5. Open the pull request for Mursaleen.
 
 ## 12. Graphics
 
