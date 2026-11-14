@@ -12,7 +12,8 @@ refined by fitting the sheet's street centre lines to the OpenStreetMap streets 
 traced on satellite imagery), so that sheet features land on the real streets.
 
 Output: tools/source/sheet_layout.json (lon/lat) and sheet_ink_A..F.png (how much is drawn where,
-8 px blocks). tools/make_data.py builds the plots from them.
+8 px blocks) and sheet_road_A..F.png (the street space of each sheet). tools/make_data.py builds the plots
+and the streets from them.
 Sheets are downloaded once into tools/source/cache/.
 
 usage (from the repo root):  python -I tools/trace_plots.py [--debug DIR]
@@ -205,16 +206,35 @@ def cells_of(img, thin, mn, ch, mpp):
     return out
 
 def regular_cells(block):
-    """Square up the rectangular cells of a block to its axis and make neighbours share edges."""
+    """Clean plot shapes.
+
+    A cell that is a rectangle on the block's axis becomes a box in the block frame, with edges snapped so that
+    neighbours share them. A rectangle turned away from the axis (rows along a curved street) keeps its own
+    rectangle. Anything else (corner plots, wedges) is reduced to a polygon of at most five corners.
+    """
     a = block["angle"]
     R = np.array([[math.cos(a), math.sin(a)], [-math.sin(a), math.cos(a)]])        # sheet px -> block frame
-    boxes = []
+    boxes, own = [], []
     for c in block["cells"]:
-        if c["rect"] > 0.84:
+        pts = c["pts"].astype(np.float32)
+        d = abs(((c["ang"] - a) + math.pi / 4) % (math.pi / 2) - math.pi / 4)      # angle to the block axis, 0..45 deg
+        if c["rect"] >= 0.8 and d <= math.radians(4):
             q = c["pts"] @ R.T
             boxes.append([q[:, 0].min(), q[:, 1].min(), q[:, 0].max(), q[:, 1].max()])
-        else:
+            own.append(None)
+        elif c["rect"] >= 0.8:
             boxes.append(None)
+            own.append(cv2.boxPoints(cv2.minAreaRect(pts)).astype(float))
+        else:
+            hull = cv2.convexHull(pts)
+            eps, poly = 1.0, hull
+            while True:
+                poly = cv2.approxPolyDP(hull, eps, True)
+                if len(poly) <= 5 or eps > 6:
+                    break
+                eps += 0.5
+            boxes.append(None)
+            own.append(poly[:, 0, :].astype(float) if len(poly) >= 3 else cv2.boxPoints(cv2.minAreaRect(pts)).astype(float))
     for k in (0, 1):                                    # snap x edges, then y edges
         vals = sorted((b[k + d], i, k + d) for i, b in enumerate(boxes) if b is not None for d in (0, 2))
         grp = []
@@ -226,9 +246,11 @@ def regular_cells(block):
                 grp = []
             grp.append(v)
     out = []
-    for c, b in zip(block["cells"], boxes):
-        if b is None or b[2] - b[0] < 3 or b[3] - b[1] < 3:
-            out.append(c["px"])
+    for c, b, o in zip(block["cells"], boxes, own):
+        if b is None:
+            out.append(o)
+        elif b[2] - b[0] < 3 or b[3] - b[1] < 3:
+            out.append(cv2.boxPoints(cv2.minAreaRect(c["pts"].astype(np.float32))).astype(float))
         else:
             q = np.array([[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]])
             out.append(q @ R)
@@ -303,8 +325,8 @@ def streets_of(road, mpp):
         ix = np.clip(np.round(p[1:-1]).astype(int), 0, [road.shape[1] - 1, road.shape[0] - 1])
         width = float(np.median(dt[ix[:, 1], ix[:, 0]])) * 2 * mpp if len(ix) else 0
         ln = LineString(p)
-        if ln.length * mpp < (26 if e["free"] else 9):
-            continue                                     # spurs into corners and dead ends
+        if e["free"] and ln.length * mpp < 26:
+            continue                                     # spurs into corners and short dead ends
         ln = ln.simplify(2.2 / mpp)
         out.append({"px": np.array(ln.coords), "width": width})
     return out
@@ -399,6 +421,9 @@ def main():
         blk = 8
         dens = cv2.resize(thin.astype(np.float32), (img.shape[1] // blk, img.shape[0] // blk), interpolation=cv2.INTER_AREA)
         cv2.imwrite(os.path.join(SRC, f"sheet_ink_{name}.png"), np.clip(dens * 255, 0, 255).astype(np.uint8))
+        # the street space of the sheet (white corridors joined into one network): a gap in a row of plots that is
+        # not street space is a plot the print did not let us read
+        cv2.imwrite(os.path.join(SRC, f"sheet_road_{name}.png"), road * 255, [cv2.IMWRITE_PNG_BILEVEL, 1])
         # outline of everything the sheet draws (plots, pictures and the streets between them): beyond it the paper is blank
         m = (dens > 0.06).astype(np.uint8)
         m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
@@ -414,7 +439,7 @@ def main():
                 if g.geom_type == "Polygon" and g.area > 2500:
                     drawn.append([list(ll(*pt)) for pt in g.exterior.coords[:-1]])
         out["sheets"][name] = {"affine": [[round(float(v), 6) for v in row] for row in A], "size": [img.shape[1], img.shape[0]],
-                               "ink": {"file": f"sheet_ink_{name}.png", "block": blk}, "drawn": drawn, "blocks": ob, "streets": os_}
+                               "ink": {"file": f"sheet_ink_{name}.png", "block": blk}, "road": f"sheet_road_{name}.png", "drawn": drawn, "blocks": ob, "streets": os_}
         print(f"  {nb} street blocks, {nc} plot cells, {len(os_)} street pieces")
         if args.debug:
             os.makedirs(args.debug, exist_ok=True)
