@@ -430,6 +430,29 @@ class EmapPlan:
             return None
         return float(img[py[ok], px[ok]].mean())
 
+    def colour_share(self, poly, refs, tol=60, step=2.0):
+        """share of the polygon the plan paints in one of the colours `refs` (read from the cached zoom-19 tiles,
+        through the registration); None when the tiles are not cached"""
+        xs, ys = self._pts(poly, step)
+        px, py = self._idx(xs, ys)
+        gx, gy = px * 2 + self.gx0, py * 2 + self.gy0
+        tiles, hit, n = {}, 0, 0
+        for x, y in zip(gx.tolist(), gy.tolist()):
+            k = (x // 256, y // 256)
+            if k not in tiles:
+                p = os.path.join(SRC, "cache", "emap", "19", f"{k[0]}_{k[1]}.png")
+                tiles[k] = np.asarray(Image.open(p).convert("RGBA")) if os.path.exists(p) and os.path.getsize(p) else None
+            a = tiles[k]
+            n += 1
+            if a is None:
+                continue
+            c = a[y % 256, x % 256]
+            if c[3] > 100 and any(sum(abs(int(c[i]) - r[i]) for i in range(3)) < tol for r in refs):
+                hit += 1
+        if not tiles or all(v is None for v in tiles.values()):
+            return None
+        return hit / max(n, 1)
+
     def sample(self, poly, step=5.0):
         """(share of the polygon on the drawn plan, share of that which is not street space)"""
         xs, ys = self._pts(poly, step)
@@ -503,6 +526,7 @@ class Lay(str):
 
 # sites the newer plan shows in Block X (where the fdacity.pk plan has Multi-Purpose Uses and the proposed university,
 # stadium and IMAX theatre), recognised by their colour on the plan
+GRAVE_COLOURS = [(180, 120, 84), (196, 162, 100)]      # graveyard browns of the emap.pk plan (Block F, Block X)
 EMAP_SITE_COLOURS = [
     ((4, 146, 220), "school", "Primary School (Block X)", None),
     ((156, 178, 188), "grid", "Site for Grid Station (Block X)", 48),
@@ -989,6 +1013,48 @@ def load_buildings():
     return out
 
 
+def join_street_gaps(lines, blocked, max_gap=16.0, max_turn=25.0):
+    """join pairs of street ends that face each other in line across a short gap free of plots; (lines, joins)"""
+    lines = [ln for ln in lines]
+    cos_t = math.cos(math.radians(max_turn))
+    n = 0
+    while True:
+        ends = []
+        for i, ln in enumerate(lines):
+            cs = list(ln.coords)
+            if len(cs) < 2:
+                continue
+            for k, (p, q) in enumerate(((cs[0], cs[1]), (cs[-1], cs[-2]))):
+                L = math.dist(p, q) or 1
+                ends.append((i, k, p, ((p[0] - q[0]) / L, (p[1] - q[1]) / L)))     # end point, outward direction
+        best = None
+        for a in range(len(ends)):
+            for b in range(a + 1, len(ends)):
+                ia, ka, pa, da = ends[a]
+                ib, kb, pb, db = ends[b]
+                if ia == ib:
+                    continue
+                d = math.dist(pa, pb)
+                if not 0.5 < d < max_gap:
+                    continue
+                v = ((pb[0] - pa[0]) / d, (pb[1] - pa[1]) / d)
+                if da[0] * v[0] + da[1] * v[1] < cos_t or -(db[0] * v[0] + db[1] * v[1]) < cos_t:
+                    continue
+                if blocked is not None and blocked.intersection(LineString([pa, pb]).buffer(1.5)).area > 1.0:
+                    continue
+                if best is None or d < best[0]:
+                    best = (d, ia, ka, ib, kb)
+        if best is None:
+            return lines, n
+        _, ia, ka, ib, kb = best
+        ca, cb = list(lines[ia].coords), list(lines[ib].coords)
+        ca = ca if ka == 1 else ca[::-1]          # ca ends at the joined end
+        cb = cb if kb == 0 else cb[::-1]          # cb starts at the joined end
+        joined = dejog(LineString(ca + cb), max_lat=4.0)      # no sideways step where the two pieces meet
+        lines = [ln for k, ln in enumerate(lines) if k not in (ia, ib)] + [joined]
+        n += 1
+
+
 def _runs(mask):
     """index pairs (first, last) of the runs of True in a 1-D boolean array"""
     out, i, n = [], 0, len(mask)
@@ -1361,9 +1427,64 @@ def main():
         u = unary_union(parts)
         return clean(u.buffer(1.0, join_style=2).buffer(-1.0, join_style=2))   # close notches at junctions
 
+    # a service road carries traffic one way, the way of the main carriageway beside it (no car against the flow)
+    mains_ = [d["line"] for d in roads if d["cls"] == "main"]
+    for d in roads:
+        if d["cls"] == "service" and mains_:
+            mid = d["line"].interpolate(0.5, normalized=True)
+            v = direction_at(min(mains_, key=lambda q: q.distance(mid)), mid)
+            w_ = direction_at(d["line"], mid)
+            if v[0] * w_[0] + v[1] * w_[1] < 0:
+                d["line"] = LineString(list(d["line"].coords)[::-1])
+            d["oneway"] = True
     surf = surface(ROW)
     carriage = surface(WIDTH)
     reserve = unary_union([d["line"].buffer(RESERVE[d["cls"]], cap_style=2, join_style=2) for d in roads if d["cls"] in RESERVE])
+    # A kerbed divider between each main carriageway and the service road beside it. Where the two run close (by the
+    # gate and along the Main Entrance Road their asphalt is 1 to 2 m apart) the faces of the road network leave no
+    # strip and the asphalt of both ran together; there the divider is laid out from the two centre lines (at least
+    # 0.9 m wide), open where a side street or a slip road joins.
+    dividers = None
+    if mains_:
+        hm, hs = WIDTH["main"] / 2, WIDTH["service"] / 2
+        rings_ = [(c_, ro_) for (c_, ri_, ro_) in ring_geo.values()]
+        divs = []
+        for d in roads:
+            if d["cls"] != "service":
+                continue
+            s_ = d["line"]
+            run = []
+
+            def flush():
+                if len(run) >= 4:
+                    pts_ = [(x_, y_) for x_, y_, _ in run]
+                    w_med = float(np.median([w for _, _, w in run]))
+                    divs.append(LineString(pts_).buffer(w_med / 2, cap_style=2, join_style=2))
+                run.clear()
+            for t in list(np.arange(0.0, s_.length, 1.5)) + [s_.length]:
+                p = s_.interpolate(t)
+                m = min(mains_, key=lambda q: q.distance(p))
+                q = m.interpolate(m.project(p))
+                dist = p.distance(q)
+                gap = dist - hm - hs
+                du, dm = direction_at(s_, p), direction_at(m, q)
+                ok = (-0.4 <= gap <= 3.0 and dist > 0.5 and abs(du[0] * dm[0] + du[1] * dm[1]) > 0.97
+                      and all(p.distance(c_) > ro_ + 4 for c_, ro_ in rings_))
+                if ok:
+                    ux, uy = (p.x - q.x) / dist, (p.y - q.y) / dist
+                    mv = hm + gap / 2
+                    run.append((q.x + ux * mv, q.y + uy * mv, max(gap, 0.9)))
+                else:
+                    flush()
+            flush()
+        if divs:
+            openings = unary_union([d["line"].buffer(WIDTH[d["cls"]] / 2 + 1.5, cap_style=2) for d in roads
+                                    if d["cls"] not in ("main", "service", "highway")])
+            dividers = clean(unary_union(divs).difference(openings))
+            dividers = clean(unary_union([q for q in polys(dividers) if q.area > 4]))
+            carriage = clean(carriage.difference(dividers))
+            print(f"kerbed dividers between main carriageways and service roads: {len(polys(dividers))} pieces, "
+                  f"{sum(q.length for q in polys(dividers)) / 2 / 1000:.1f} km")
 
     # ---- faces of the road network ----------------------------------------------------------
     inner_lines = [d["line"].intersection(env.buffer(30)) for d in roads if d["cls"] != "highway"]
@@ -1915,6 +2036,11 @@ def main():
         n_sl = sum(1 for ln in lines_new if sliver(ln))
         lines_new = [ln for ln in lines_new if not sliver(ln)]
         print(f"short street pieces alongside another street dropped: {n_sl}")
+        # one street broken into two pieces (a plot number or the street name printed across it): join two ends that
+        # face each other in line, under 16 m apart, across a gap no plot or site stands in
+        plots_now = clean(unary_union([pg for pg, _, _ in plot_geo] + site_core))
+        lines_new, n_join = join_street_gaps(lines_new, plots_now)
+        print(f"streets joined across a gap: {n_join}")
         if lines_new:            # ... and the site is cut back to the street's 40 ft reserve
             band = unary_union(lines_new).buffer(STREET / 2, cap_style=2, join_style=1)
             n_trim = 0
@@ -1944,6 +2070,8 @@ def main():
     if lines_new:
         lu = unary_union(lines_new)
         new_carriage = clean(lu.buffer(half, join_style=1, cap_style=2).difference(blocked_u.buffer(0.4)).intersection(outline))
+        # where plots press on a street, its asphalt narrows to a point: anything under 3 m wide is not a road
+        new_carriage = clean(new_carriage.buffer(-1.5, join_style=2).buffer(1.5, join_style=2).intersection(new_carriage))
         new_carriage = clean(unary_union([q for q in polys(new_carriage) if q.area > 40]))
         new_reserve = clean(lu.buffer(STREET / 2, join_style=1, cap_style=2).difference(blocked_u).intersection(outline))
         print(f"streets between the plots, not in OpenStreetMap yet: {sum(l.length for l in lines_new) / 1000:.1f} km in {len(lines_new)} pieces")
@@ -2245,13 +2373,46 @@ def main():
                 if not sb.contains(pt):
                     water.append(feature(pt, {"kind": "nala_tree"}))
                 dd += 13.0
+    # Bridges where roads cross the channel. Crossings close together are one structure: the two carriageways of a
+    # dual road (Iqra Road, the boulevard, the 85 ft roads) share one bridge with railings on its outer edges only;
+    # a side street that meets a road right at the channel gets no bridge of its own (its railings would run across
+    # the road it joins).
+    cand = []
     for d in roads:
         x = d["line"].intersection(nala)
         for pt in ([x] if x.geom_type == "Point" else [q for q in getattr(x, "geoms", []) if q.geom_type == "Point"]):
             s = d["line"].project(pt)
             a, b = d["line"].interpolate(max(0, s - 3)), d["line"].interpolate(min(d["line"].length, s + 3))
-            water.append(feature(pt, {"kind": "bridge", "heading": round(math.degrees(math.atan2(b.y - a.y, b.x - a.x)), 1),
-                                      "road_width": round(WIDTH[d["cls"]], 1), "span": round(2 * NALA_CH + 2, 1)}))
+            cand.append({"pt": pt, "h": math.atan2(b.y - a.y, b.x - a.x), "w": WIDTH[d["cls"]], "len": d["line"].length})
+    order = sorted(range(len(cand)), key=lambda i: (-cand[i]["w"], -cand[i]["len"]))
+    used = [False] * len(cand)
+    n_merged = n_side = 0
+    for i in order:
+        if used[i]:
+            continue
+        used[i] = True
+        c = cand[i]
+        u, nv_ = (math.cos(c["h"]), math.sin(c["h"])), (-math.sin(c["h"]), math.cos(c["h"]))
+        group = [c]
+        for j in order:
+            if used[j]:
+                continue
+            o = cand[j]
+            dist = o["pt"].distance(c["pt"])
+            dh = abs((o["h"] - c["h"] + math.pi / 2) % math.pi - math.pi / 2)
+            if dh < math.radians(25) and dist - (o["w"] + c["w"]) / 2 < 8.0:
+                group.append(o); used[j] = True; n_merged += 1          # the other carriageway of the same road
+            elif dh >= math.radians(25) and dist < 10.0:
+                used[j] = True; n_side += 1                              # a side street meeting the road at the channel
+        across = [((g["pt"].x - c["pt"].x) * nv_[0] + (g["pt"].y - c["pt"].y) * nv_[1], g["w"] / 2) for g in group]
+        along = [(g["pt"].x - c["pt"].x) * u[0] + (g["pt"].y - c["pt"].y) * u[1] for g in group]
+        lo, hi = min(t - w for t, w in across), max(t + w for t, w in across)
+        mid, al = (lo + hi) / 2, sum(along) / len(along)
+        cp = Point(c["pt"].x + nv_[0] * mid + u[0] * al, c["pt"].y + nv_[1] * mid + u[1] * al)
+        water.append(feature(cp, {"kind": "bridge", "heading": round(math.degrees(c["h"]), 1), "road_width": round(hi - lo, 1),
+                                  "span": round(2 * NALA_CH + 2, 1), "carriageways": len(group)}))
+    print(f"bridges: {len(cand)} crossings -> {len(cand) - n_merged - n_side} bridges ({n_merged} second carriageways share a bridge, "
+          f"{n_side} side streets meeting a road at the channel)")
     print("water:", dict(Counter(f["properties"]["kind"] for f in water)))
 
     tick("water")
@@ -2285,6 +2446,10 @@ def main():
     inner_carriage = clean(unary_union([carriage.intersection(box_o)] + [q for q in planned_carriage if not q.is_empty] + extra_c))
     inner_row = clean(unary_union([surf.intersection(box_o), reserve.intersection(box_o)] + planned_streets + extra_r))
     medians = unary_union([p["land"] for p in P if p["kind"] in ("median", "strip", "island")])
+    div_new = None
+    if dividers is not None:
+        div_new = clean(dividers.difference(medians.buffer(0.05)))
+        medians = unary_union([medians, dividers])
     verge = clean(inner_row.difference(inner_carriage.buffer(0.05)).difference(medians.buffer(0.05)).difference(nala.buffer(NALA_CH + 0.5)))
     verge = clean(verge.difference(unary_union([pg.buffer(0.1) for pg, _, _ in kept])))      # a plot wins over the verge beside it
     write(out, "road_surface",
@@ -2294,6 +2459,8 @@ def main():
                        if d["cls"] in ("highway", "arterial", "main", "service", "divider", "road110", "road85", "collector")])
     near = carriage.intersection(outline.buffer(70))
     outer = clean(unary_union([big.intersection(outline.buffer(1500)), near]).difference(outline.buffer(-0.5)))
+    if dividers is not None:
+        outer = clean(outer.difference(dividers))
     write(out, "outer_roads", [feature(clean(q.simplify(0.3)), {"kind": "road", "accuracy": "approximate"}) for q in polys(outer) if q.area > 30])
     land_feats = []
     # (planned streets too: the plot ground must not cover any street)
@@ -2316,6 +2483,21 @@ def main():
     for p in P:                      # land enclosed by the society that the plan leaves blank
         if p["kind"] == "outside" and outline.buffer(-2).contains(p["land"]):
             greens.append(p["land"])
+    # open land the newer plan colours as a graveyard (brown; "EXISTING GRAVE YARD" by Block F) is a graveyard,
+    # not a park
+    if emap is not None:
+        keep_g, n_gy = [], 0
+        for q in greens:
+            sh = emap.colour_share(q, GRAVE_COLOURS) if q.area >= 800 else None
+            g_ = largest(clean(q.buffer(-0.3, join_style=2))) if sh is not None and sh >= 0.45 else None
+            if g_ is not None:
+                blk_ = block_m(g_.representative_point())
+                add_lm(g_, "graveyard", f"Graveyard (Block {blk_})", blk_, {"source": "Newer FDA City plan (emap.pk): EXISTING GRAVE YARD"})
+                n_gy += 1
+            else:
+                keep_g.append(q)
+        greens = keep_g
+        print(f"graveyards the newer plan draws on land left open: {n_gy}")
     for q in greens:
         for r in polys(clean(q.simplify(0.15))):
             if r.area > 20:
@@ -2348,12 +2530,18 @@ def main():
             continue
         between = clean(Polygon(side_pts + main_pts[::-1]))
         sep = clean(between.difference(carriage.buffer(0.05)).difference(outline.buffer(0.5)))
+        if dividers is not None:
+            sep = clean(sep.difference(dividers.buffer(0.05)))
         for q in polys(sep):
             if q.area > 4 and not q.buffer(-0.2).is_empty:
                 land_feats.append(feature(clean(q.simplify(0.15)), {"layer": "land", "kind": "strip", "use": "strip", "block": None, "size": None, "area_m2": round(q.area), "accuracy": "approximate", "outside": True}))
                 n_sep += 1
     if n_sep:
         print(f"paved strips between the main road and its service roads outside the outline: {n_sep}")
+    for q in polys(div_new) if div_new is not None else []:
+        if q.area > 3:
+            land_feats.append(feature(clean(q.simplify(0.1)), {"layer": "land", "kind": "strip", "use": "divider", "block": None, "size": None,
+                                                            "area_m2": round(q.area), "accuracy": "approximate", "outside": not outline.contains(q.representative_point())}))
     for q in unplotted:              # society land that no block map draws anything on
         for r in polys(clean(q.simplify(0.3))):
             if r.area > 60:
