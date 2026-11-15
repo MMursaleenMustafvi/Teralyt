@@ -333,10 +333,12 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       }
     };
     const otherMainDist = (l, x, y) => { let d = Infinity; for (const m of mains) if (m !== l) for (let i = 0; i < m.pts.length - 1; i++) d = Math.min(d, segDist(x, y, m.pts[i], m.pts[i + 1])); return d; };
+    const svcs = lines.filter(l => l.p.class === 'service');
+    const onService = (x, y) => { for (const s of svcs) { const hw = (s.p.width_m || 7.5) / 2 + .6; for (let i = 0; i < s.pts.length - 1; i++) if (segDist(x, y, s.pts[i], s.pts[i + 1]) < hw) return true; } return false; };
     for (const l of lines) {
       const w = l.p.width_m || 12, cls = l.p.class;
       if (cls === 'service') {
-        stripe(l.pts, 0, 3, 6, .12);
+        // service roads carry no painted lines on site (Google satellite, zoom 20)
       } else if (cls === 'road110' || cls === 'divider_half') {
         stripe(l.pts, 0, 3, 6, .13); stripe(l.pts, w / 2 - .35, 1, 0, .16); stripe(l.pts, -(w / 2 - .35), 1, 0, .16);
         along(l.pts, 38, 9, (x, y, ux, uy, t) => { const off = w / 2 + 1.2, px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-ux, uy) + PI]); });
@@ -352,12 +354,15 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         along(l.pts, 36, 8, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 1.4), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); } });
         along(l.pts, 18, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 2.8), px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 18) % 3) trees.round.push([px, Y.verge, -py, .85]); } });
       } else if (cls === 'main') {
-        // the boulevard carriageways (about 11 m) have no painted lanes on site (Google, zoom 20): edge lines only
+        // each carriageway of the boulevard and the main entrance road (about 11 m) carries two lanes, divided by a
+        // dashed white line (seen on Google satellite imagery, e.g. at the footbridge by the gate); solid edge lines
+        stripe(l.pts, 0, 3, 6, .16);
         stripe(l.pts, w / 2 - .45, 1, 0, .2); stripe(l.pts, -(w / 2 - .45), 1, 0, .2);
         along(l.pts, 34, 6, (x, y, ux, uy) => {
           for (const s of [1, -1]) {
             const off = s * (w / 2 + 1.3), px = x - uy * off, py = y + ux * off;
             const median = otherMainDist(l, px, py) < w / 2 + 9;      // (the entrance road has lamps outside the boundary too)
+            if (!median && onService(px, py)) continue;                // no lamp standing on a service road (by the gate it runs right beside)
             lamps.street.push([px, Y.curb, -py, Math.atan2(-(s * ux), s * uy) + PI]);
             if (median) { const tx = x - uy * off + ux * 17, ty = y + ux * off + uy * 17; trees.palm.push([tx, Y.median, -ty, 1.05]); }
           }
@@ -676,7 +681,8 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       const n = Math.floor(pa.len / (pa.main ? 45 : 110));
       for (let i = 0; i < n; i++) {
         const dir = (pa.main || pa.oneway) ? 1 : (r() < .5 ? 1 : -1);
-        const lane = pa.main ? (r() < .5 ? -1 : 1) * pa.w / 4 : pa.oneway ? (r() < .5 ? -1 : 1) * pa.w / 4 : -dir * pa.w / 4;
+        // two lanes each way on the main road; on two-way roads traffic keeps to the left, as in Pakistan
+        const lane = (pa.main || pa.oneway) ? (r() < .5 ? -1 : 1) * pa.w / 4 : dir * pa.w / 4;
         cars.push({ pa, s: r() * pa.len, v: (pa.main ? 11 : 8) + r() * 5, dir, lane });
       }
     }
@@ -1175,7 +1181,7 @@ function injectCss() {
   s.textContent = `
 .s3d{position:relative;overflow:hidden}
 .s3d-canvas{display:block;width:100%;height:100%;touch-action:none}
-.s3d-labels{position:absolute;inset:0;pointer-events:none}
+.s3d-labels{position:absolute;inset:0;pointer-events:none;z-index:1}
 .s3d-lbl{pointer-events:auto;cursor:pointer;background:rgba(20,14,9,.82);color:#f3ead8;border-left:3px solid var(--k,#7bd08b);padding:3px 8px;border-radius:6px;font:600 11.5px "Plus Jakarta Sans","Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.35);transform:translateY(-6px)}
 .s3d-lbl:hover{background:#2a1f15}
 .s3d-blk{color:#f3ead8;font:800 20px "Plus Jakarta Sans","Segoe UI",sans-serif;letter-spacing:.06em;text-shadow:0 2px 8px rgba(0,0,0,.85),0 0 2px #000}

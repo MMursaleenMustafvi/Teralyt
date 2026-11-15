@@ -688,6 +688,15 @@ def plan_street_lines(emap, outline, row, blocked, res=1.0, shrink=0, corridor=N
         v[ok] = emap.road[py[ok], px[ok]]
         road[j0:j1] = v.reshape(j1 - j0, W)
     inside, exist, block = ras(outline.buffer(-0.5)), ras(row), ras(blocked)
+    # Street names ("ROAD 40'-0" WIDE"), the emap.pk watermark and plot numbers printed over a street punch small holes
+    # in its street space; the centre line would bend round them (S-shaped jogs, loops). Holes under 150 m2 that are
+    # not plots or sites are street.
+    n_lab, lab, stats, _ = cv2.connectedComponentsWithStats((~(road & inside)).astype(np.uint8), connectivity=4)
+    small = np.zeros(n_lab, bool)
+    small[1:] = stats[1:, cv2.CC_STAT_AREA] * res * res < 150
+    small[np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))] = False
+    holes = small[lab] & ~block
+    road = road | holes
     exist = cv2.dilate(exist.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0       # mapped roads, 1 m wider
     if shrink:
         block = cv2.erode(block.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=shrink) > 0
@@ -720,8 +729,47 @@ def plan_street_lines(emap, outline, row, blocked, res=1.0, shrink=0, corridor=N
             continue                      # runs along inside a main road's official corridor (service lanes, verges, median)
         if ln.length < 30 and not (at_road(ln.coords[0]) and at_road(ln.coords[-1])):
             continue                      # a short piece that does not link two roads is a stub, not a street
-        out.append(ln.simplify(2.0))
+        out.append(dejog(ln.simplify(2.0)))
     return [ln for ln in out if ln.length >= 8]
+
+
+def dejog(ln, max_lat=8.0, max_mid=20.0, min_leg=8.0, par=10.0):
+    """Take S-shaped sideways steps out of a street centre line.
+
+    Two parallel legs a few metres apart, joined by a short bend, are a break in the plan's drawing (big printed street
+    names, the watermark, or the plan's nalla drawn with a kink where the real one runs straight), not a street that
+    steps sideways. The street runs straight from the start of the first leg to the end of the second; its ends, and so
+    its junctions, stay where they are."""
+    pts = list(ln.coords)
+    changed = True
+    while changed and len(pts) >= 4:
+        changed = False
+        for i in range(len(pts) - 3):
+            a0, a1 = pts[i], pts[i + 1]
+            la = math.dist(a0, a1)
+            if la < min_leg:
+                continue
+            ua = ((a1[0] - a0[0]) / la, (a1[1] - a0[1]) / la)
+            mid = 0.0
+            for k in range(i + 2, min(len(pts) - 1, i + 5)):
+                mid += math.dist(pts[k - 1], pts[k])
+                if mid > max_mid:
+                    break
+                b0, b1 = pts[k], pts[k + 1]
+                lb = math.dist(b0, b1)
+                if lb < min_leg:
+                    continue
+                ub = ((b1[0] - b0[0]) / lb, (b1[1] - b0[1]) / lb)
+                if ua[0] * ub[0] + ua[1] * ub[1] < math.cos(math.radians(par)):
+                    continue
+                lat = ua[0] * (b0[1] - a1[1]) - ua[1] * (b0[0] - a1[0])
+                if 1.0 <= abs(lat) <= max_lat:
+                    pts = pts[:i + 1] + pts[k + 1:]
+                    changed = True
+                    break
+            if changed:
+                break
+    return LineString(pts)
 
 
 def corridor_lines(left, row, carriage, sheet_ink, block_of, res=1.0):
@@ -850,6 +898,14 @@ def road_offsets():
     """sideways shifts of OpenStreetMap ways measured on satellite imagery (tools/align_roads.py)"""
     path = os.path.join(SRC, "road_offsets.json")
     return json.load(open(path)) if os.path.exists(path) else {}
+
+
+def service_roads():
+    """service roads beside the main road that OpenStreetMap lacks, measured by tools/service_roads.py (local metres)"""
+    path = os.path.join(SRC, "service_roads.geojson")
+    if not os.path.exists(path):
+        return []
+    return [LineString([xy(*c) for c in f["geometry"]["coordinates"]]) for f in json.load(open(path, encoding="utf-8"))["features"]]
 
 
 def shift_line(pts, prof):
@@ -1163,6 +1219,31 @@ def main():
             have = sum(d["line"].length for d in roads if d["cls"] == cls and ln.distance(d["line"].interpolate(0.5, normalized=True)) < 24)
             if have < 0.5 * ln.length:
                 roads.append({"id": None, "name": item.get("name"), "oneway": False, "line": ln, "cls": cls, "planned": True})
+    measured = service_roads()
+    if measured:
+        # service roads beside the main road that OpenStreetMap does not map (tools/service_roads.py: Google Maps shows
+        # them, the position is measured on Google satellite imagery). An OpenStreetMap street drawn along one of them
+        # (tagged residential) is that service road: the measured line replaces the stretch it shares.
+        zone = unary_union([m.buffer(6.0, cap_style=2) for m in measured])
+        svc_u = unary_union(measured)
+        kept_r, n_cut = [], 0
+        for d in roads:
+            if d["cls"] in ("residential", "collector") and d["line"].intersection(zone).length > 15:
+                n_cut += 1
+                for q in lines_of(d["line"].difference(zone)):
+                    if q.length < 25:
+                        continue
+                    cs = list(q.coords)          # the cut end is joined back onto the service road
+                    if svc_u.distance(Point(cs[0])) < 6.5:
+                        cs = [svc_u.interpolate(svc_u.project(Point(cs[0]))).coords[0]] + cs
+                    if svc_u.distance(Point(cs[-1])) < 6.5:
+                        cs = cs + [svc_u.interpolate(svc_u.project(Point(cs[-1]))).coords[0]]
+                    kept_r.append(dict(d, line=LineString(cs)))
+                continue
+            kept_r.append(d)
+        roads = kept_r + [{"id": None, "name": ROAD_NAME["service"], "oneway": False, "line": m, "cls": "service",
+                           "source": "Measured: Google Maps shows it, position from Google satellite imagery"} for m in measured]
+        print(f"measured service roads: {len(measured)} lines, {sum(m.length for m in measured):.0f} m; {n_cut} OpenStreetMap streets along them cut back")
     merged = linemerge(MultiLineString([d["line"] for d in roads if d["cls"] == "residential"]))
     coll = [ch for ch in lines_of(merged) if ch.length > 650 and math.dist(ch.coords[0], ch.coords[-1]) / ch.length > 0.93]
     cz = unary_union([ch.buffer(1.0) for ch in coll]) if coll else None
@@ -1328,9 +1409,12 @@ def main():
             if a > ba:
                 best, ba = with_free[i], a
         if (best is None or ba < 0.55 * c["poly"].area) and emap is not None:
-            # the plan puts a plot where the road as built is a few metres wider or off: trim the plot to the road edge
+            # the plan puts a plot where the road as built is wider or off: trim the plot to the road edge. Along the
+            # main entrance road the plan draws the 202 ft road far narrower than built (no service roads): its
+            # commercial rows lose up to 60% of their depth, but they stay the plan's numbered plots
             g = largest(clean(Parts_hard.minus(c["poly"])))
-            if g is not None and g.area >= 0.5 * c["poly"].area and soc_fp.contains(g.representative_point()):
+            if (g is not None and g.area >= 0.35 * c["poly"].area and g.area >= 50 and not g.buffer(-2.0).is_empty
+                    and soc_fp.contains(g.representative_point())):
                 near_p = [with_free[i] for i in ptree.query(g.buffer(15))]
                 if near_p:
                     best = min(near_p, key=lambda q: q["free"].distance(g))
@@ -1561,7 +1645,8 @@ def main():
         acc = []
         for c in p.get("cells", []):
             g = c["clip"] if c.get("clip") is not None else largest(c["poly"].intersection(free))
-            if g is None or g.area < 0.5 * c["poly"].area:
+            keep = 0.35 if c.get("clip") is not None else 0.5          # (trimmed to the road as built: see above)
+            if g is None or g.area < keep * c["poly"].area:
                 lost += 1
                 c["drop"] = "cut by a road"
                 continue
@@ -1575,7 +1660,7 @@ def main():
                         g = largest(g.difference(acc[j][0].buffer(0.02)))
                 if g is not None and len(g.exterior.coords) > 7:
                     g = largest(clean(g.simplify(0.6)))            # slivers cut by a neighbour leave a ragged edge
-                acc[i][0] = g if (g is not None and g.area >= 0.5 * c["poly"].area) else None
+                acc[i][0] = g if (g is not None and g.area >= (0.35 if c.get("clip") is not None else 0.5) * c["poly"].area) else None
                 if acc[i][0] is None:
                     c["drop"] = "squeezed out by a neighbouring cell"
             acc = [(g, c) for g, c in acc if g is not None]
@@ -1723,9 +1808,45 @@ def main():
         half_row = {"main": 21.0, "service": 5.0, "road110": 9.5, "divider_half": 8.0, "divider": 13.0, "road85": 13.0, "collector": 9.0,
                     "arterial": 15.0, "highway": 20.0, "roundabout": 12.0, "residential": 6.5}
         corridor = clean(unary_union([d["line"].buffer(half_row[d["cls"]], cap_style=2) for d in roads if d["cls"] in half_row]))
+        # Site outlines come from the older fdacity.pk block maps and are sometimes drawn a few metres over the newer
+        # plan's street beside them (Park A-2, a Block D park): only a site's interior stops a street; its outer 8 m may not.
+        site_core = [q for f in landmarks if f["geometry"]["type"] == "Polygon"
+                     for q in [Polygon([xy(*c) for c in f["geometry"]["coordinates"][0]]).buffer(-8.0)] if not q.is_empty]
         lines_new = plan_street_lines(emap, outline, [surf.intersection(outline.buffer(5)), reserve.intersection(outline.buffer(5))],
-                                      [pg for pg, _, _ in plot_geo] + [Polygon([xy(*c) for c in f["geometry"]["coordinates"][0]]) for f in landmarks], shrink=1,
-                                      corridor=corridor)
+                                      [pg for pg, _, _ in plot_geo] + site_core, shrink=1, corridor=corridor)
+        # a short piece lying alongside a street (within 10 m, parallel) is a leftover of the tracing, not a street of its own
+        known = [d["line"] for d in roads if d["cls"] != "highway"]
+        ktree = STRtree(known)
+
+        def sliver(ln):
+            if ln.length >= 20:
+                return False
+            near = [known[j] for j in ktree.query(ln.buffer(10.0))] + [o for o in lines_new if o is not ln and o.distance(ln) < 10.0]
+            return any(o.distance(ln) < 10.0 and parallel_to(ln, o, 0.87) for o in near)
+        n_sl = sum(1 for ln in lines_new if sliver(ln))
+        lines_new = [ln for ln in lines_new if not sliver(ln)]
+        print(f"short street pieces alongside another street dropped: {n_sl}")
+        if lines_new:            # ... and the site is cut back to the street's 40 ft reserve
+            band = unary_union(lines_new).buffer(STREET / 2, cap_style=2, join_style=1)
+            n_trim = 0
+            for f in landmarks:
+                if f["geometry"]["type"] != "Polygon" or f["properties"]["kind"] == "roundabout":
+                    continue
+                rings = f["geometry"]["coordinates"]          # (keep the holes cut out of a site for plots)
+                pg = clean(Polygon([xy(*c) for c in rings[0]], [[xy(*c) for c in r] for r in rings[1:]]))
+                if pg.geom_type != "Polygon":
+                    continue
+                if pg.intersection(band).area > 10:
+                    g2 = largest(clean(pg.difference(band)))
+                    if g2 is not None and g2.area > 0.5 * pg.area:
+                        g2 = clean(g2.simplify(0.2))
+                        f["geometry"] = geom_ll(g2)
+                        f["properties"]["area_kanal"] = round(g2.area / KANAL, 1)
+                        f["properties"]["obb"] = obb(g2)
+                        n_trim += 1
+            site_u = unary_union([Polygon([xy(*c) for c in f["geometry"]["coordinates"][0]]).buffer(0.5) for f in landmarks if f["geometry"]["type"] == "Polygon"])
+            blocked_u = clean(unary_union([plots_u, site_u, nala_zone]))
+            print(f"sites cut back off a street of the plan: {n_trim}")
     else:
         lines_new = corridor_lines(search, row_now, car_now, sheet_ink, block_m)
     tick(f"street lines: {len(lines_new)}")
@@ -2030,13 +2151,14 @@ def main():
     clip = outline.buffer(60)
     clip_main = outline.buffer(1500)             # the Main Entrance Road runs on to the gate, outside the outline
     for d in roads:
-        for part in lines_of(d["line"].intersection(clip_main if d["cls"] == "main" else clip)):
+        for part in lines_of(d["line"].intersection(clip_main if (d["cls"] == "main" or d.get("source")) else clip)):
             if part.length < 5:
                 continue
             road_feats.append(feature(part, {"osm_id": d["id"], "name": d["name"] or ROAD_NAME.get(d["cls"]), "class": d["cls"],
                                              "width_m": round(WIDTH[d["cls"]], 1), "official_ft": OFFICIAL_FT.get(d["cls"]), "oneway": d["oneway"],
-                                             "planned": bool(d.get("planned")), "source": "Official plan" if d.get("planned") else "OpenStreetMap",
-                                             "accuracy": "approximate" if d.get("planned") else "georeferenced"}))
+                                             "planned": bool(d.get("planned")),
+                                             "source": d.get("source") or ("Official plan" if d.get("planned") else "OpenStreetMap"),
+                                             "accuracy": "approximate" if d.get("planned") else "measured" if d.get("source") else "georeferenced"}))
     for l in planned_lines:
         if l.length > 8:
             road_feats.append(feature(l, {"osm_id": None, "name": ROAD_NAME["planned"], "class": "residential", "width_m": WIDTH["planned"], "official_ft": 40,
@@ -2099,6 +2221,28 @@ def main():
         for q in polys(clean(med.buffer(-0.3))):
             if q.area > 150 and not q.buffer(-1.0).is_empty:
                 land_feats.append(feature(clean(q.simplify(0.2)), {"layer": "land", "kind": "median", "use": "median", "block": None, "size": None, "area_m2": round(q.area), "accuracy": "approximate", "outside": True}))
+    # Outside the society outline (by the gate) the faces of the road network do not reach: the paved strip with its
+    # painted kerb between a main carriageway and its measured service road is laid out here (about 1 m by the gate).
+    n_sep = 0
+    mains_now = [d["line"] for d in roads if d["cls"] == "main"]
+    for m in measured:
+        ml = min(mains_now, key=lambda q: q.distance(m.interpolate(0.5, normalized=True)))
+        side_pts, main_pts = [], []
+        for s in np.arange(0, m.length + 0.01, 2.0):
+            p = m.interpolate(min(s, m.length))
+            side_pts.append((p.x, p.y))
+            q = ml.interpolate(ml.project(p))
+            main_pts.append((q.x, q.y))
+        if len(side_pts) < 3:
+            continue
+        between = clean(Polygon(side_pts + main_pts[::-1]))
+        sep = clean(between.difference(carriage.buffer(0.05)).difference(outline.buffer(0.5)))
+        for q in polys(sep):
+            if q.area > 4 and not q.buffer(-0.2).is_empty:
+                land_feats.append(feature(clean(q.simplify(0.15)), {"layer": "land", "kind": "strip", "use": "strip", "block": None, "size": None, "area_m2": round(q.area), "accuracy": "approximate", "outside": True}))
+                n_sep += 1
+    if n_sep:
+        print(f"paved strips between the main road and its service roads outside the outline: {n_sep}")
     for q in unplotted:              # society land that no block map draws anything on
         for r in polys(clean(q.simplify(0.3))):
             if r.area > 60:

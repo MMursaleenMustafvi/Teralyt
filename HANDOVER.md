@@ -1,6 +1,6 @@
 # Terralyt 3D map: handover
 
-Updated 14 November 2026 (evening), on branch `feature/3d-map`. The commit that contains this file is the current state: **plots, plot numbers and Block X from the emap.pk plan** (section 7). Earlier states: `7aa34ae` (plots from the six fdacity.pk block maps, before emap.pk), `d2884cf` (before the plots were read from the block maps), `206b1f4` (first version with official plots, the gate and houses; it had zig-zag streets and odd plot shapes, fixed since).
+Updated 15 November 2026 (afternoon), on branch `feature/3d-map`. The commit that contains this file is the current state: **plots, plot numbers and Block X from the emap.pk plan** (section 7), with **service roads measured from Google Maps and satellite, two lanes per main carriageway, and full screen** (section 9a). Earlier states: `7aa34ae` (plots from the six fdacity.pk block maps, before emap.pk), `d2884cf` (before the plots were read from the block maps), `206b1f4` (first version with official plots, the gate and houses; it had zig-zag streets and odd plot shapes, fixed since).
 
 This file is for whoever continues the 3D map work in a new chat, with no access to the earlier conversation. It says what exists, how it was built, what has been checked, and what is still wrong or unverified. Read it together with `CLAUDE.md` in the same folder, which holds the project rules and the code reference. Where the two disagree, trust this file for the current state and `CLAUDE.md` for the rules.
 
@@ -70,7 +70,7 @@ URL options: `?plot=B-12`, `?id=2500`, `?lm=121` (121 is the main gate), `?time=
 Machine quirks:
 
 - `git` is at `C:\Program Files\Git\cmd` and may not be on PATH in a tool shell.
-- Python 3.15 has shapely, numpy, pillow, matplotlib, playwright, opencv-python-headless, scikit-image, scipy and duckdb installed. Run the tools with `python -I`.
+- **Use Python 3.12** (`C:\Users\Taha\AppData\Local\Programs\Python\Python312\python.exe`, the first `python` on PATH). Since 15 November 2026 Windows Application Control blocks shapely's DLL in Python 3.15 ("An Application Control policy has blocked this file"). Python 3.12 has shapely, numpy, pillow, matplotlib, scipy, scikit-image, opencv and playwright. Run the tools with `python -I`.
 - `tools/shoot.py` takes headless screenshots with the installed Chrome and software rendering. Run one capture at a time. The page now loads in about 12 seconds.
 - **Only one server may run on port 8000.** Windows lets several `python -m http.server 8000` processes share the port; the browser then reaches a dead one and shows `ERR_EMPTY_RESPONSE` ("localhost didn't send any data"). This happened on 13 November. Before starting a server, stop the old ones:
 
@@ -138,6 +138,8 @@ To redo everything:
 ```powershell
 python -I tools/emap_plan.py            # only when re-reading the plan (about 30 minutes, needs Tesseract)
 python -I tools/make_data.py --preview preview.png
+python -I tools/align_roads.py          # only when re-measuring where the main roads run (then make_data again)
+python -I tools/service_roads.py        # only when re-measuring the service roads (then make_data again)
 python -I tools/audit.py
 ```
 
@@ -185,16 +187,47 @@ Google check: each block's plots were drawn over Google satellite (zoom 19): plo
 - **Jagged plot edges**: the printed number and the red emap.pk watermark bite notches out of plan outlines. Each outline is now filled out to its own hull wherever no neighbouring plot is there (`EmapPlan.cells`). Notched plots: 277 -> 36.
 - **Stray road stubs** in medians and verges: plan streets that run inside a main road's corridor, or are short pieces that do not join two roads, are dropped; streets end square, not rounded. Two OSM streets side by side (one on the plan's street, one 5 m off) no longer happen: OSM residential streets are moved onto the plan's street space (`align_to_plan`, 336 streets, median 1 m).
 - **Main roads on the real asphalt**: `tools/align_roads.py` measures each main OSM way's sideways offset on Google satellite (zoom 19) and writes `tools/source/road_offsets.json`; `make_data.py` applies it (37 ways, median 1.5 m, max 4.8 m). Esri's photo here is too hazy for this.
-- **Boulevard lanes**: on Google (zoom 20) each boulevard carriageway is about 11 m of asphalt with no painted lane lines, and service roads are separate on both sides. The 3D model no longer paints 3 lanes per side (edge lines only); traffic uses two lanes per side.
+- **Boulevard lanes**: (superseded on the afternoon of 15 November, see 9a: the carriageways do carry a dashed lane line, two lanes per side.)
 - **Park C-3** is placed on the triangle the newer plan names "Park C-3" (the old sheet put it on a sliver); "Park (Block C west)" was the same triangle and is gone.
 - Building footprints: the Overture release of 21 October 2026 has nothing newer inside FDA City than our data (Google 2023-05 and Microsoft), so houses built after mid-2023 are still missing.
 
+## 9a. Main road, service roads and full screen (15 November 2026, afternoon)
+
+Taha sent four pictures: the 3D view along the Main Entrance Road by Block A / Block F, a street with a sideways jog, Google Earth of the footbridge by the gate (two lanes each way with a dashed line), and Google Maps by the gate ("Service Road" on both sides, slip roads into the main road). He asked for: the main road as 4 lanes (2 each way), service roads where Google Maps has them and not elsewhere, proper road markings, a full audit with every inconsistency fixed, and full screen.
+
+What was wrong, and what was done:
+
+| Finding | Fix |
+| --- | --- |
+| Main carriageways painted with edge lines only. Google satellite (zoom 19/20, e.g. at the footbridge 70 m from Sargodha Road) shows a dashed line in the middle of each carriageway: two lanes each way. | `society3d.js`: dashed lane line (3 m dash, 6 m gap) plus solid edge lines on every `main` carriageway; traffic in two lanes each way. |
+| Service roads missing: none along the Main Entrance Road (Google: both sides, full length, slip roads at the gate), none on the south-east side from the south-west roundabout to roundabout A/B, none on the north-west side for the last 107 m before A/B, none on the south-east side for 620 m north-east of roundabout B/C. OpenStreetMap does not map them (checked against a fresh Overpass download: no new ways). | New `tools/service_roads.py`: walks every main carriageway every 4 m; Google's road map without labels decides where a service road exists; the asphalt band on Google satellite gives its centre line and width. 6 lines, 3.6 km, written to `tools/source/service_roads.geojson`; `make_data.py` adds them (class `service`, `source: Measured ...`). Checked on straightened corridor images: every line lies on the real service-road asphalt. Beyond 600 m north-east of B/C there is no service road (undeveloped Block X land), and none is drawn. |
+| Plan plots on the real service roads: along the entrance road the plan draws the "202 ft" road only 27 to 33 m between its commercial rows, while the built road with service roads is about 57 m, so rows A-1.. and A-161.. lay on the service roads. | Plots are trimmed back to the real road edge (they keep their plan numbers); a trimmed plot is kept when at least 35% of it remains (was 50%), so the commercial rows stay as numbered plan plots instead of being replaced by generated ones (0 generated plots now). |
+| An OpenStreetMap street tagged residential (way 860021161) runs along the real south-east service road north-east of B/C: two roads side by side. | Streets running along a measured service road are cut back there (5 streets) and joined onto the service road. |
+| Outside the society outline (by the gate) the service road was drawn fused with the main carriageway, and lamps stood on it. | Paved strips with painted kerbs between main road and service road are laid out there too (on site about 1 m by the gate); no lamp is placed on a service road; the service lines are kept in `roads.geojson` out to the gate. |
+| Service roads painted with a dashed centre line; on site they have none. | Removed. |
+| Cars on two-way roads drove on the right. Pakistan drives on the left. | Fixed in `buildCars`. |
+| Sideways jogs in plan streets (the street in Taha's picture, 31.50906, 73.07691, and 9 more): the plan draws the nalla with a kink there while the real nalla is straight, and big "ROAD 40'-0" WIDE" lettering or the watermark breaks the plan's street space. | `plan_street_lines`: small holes in the street space (under 150 m², not plots) are filled; new `dejog()` takes S-shaped steps (parallel legs, up to 8 m sideways within 20 m) out of every traced plan street, keeping its ends. Plan-street jogs: 10 to 0. |
+| Short dead-end pieces of traced street lying alongside a real street (13 stubs under 15 m). | Pieces under 20 m that run parallel to a street within 10 m are dropped (10). 6 stubs remain: 4 are real OpenStreetMap pieces (a motorway link, a median U-turn gap). |
+| Plots with no street in front (40 more than 6 m from any street): site outlines from the older fdacity.pk maps (Park A-2, a Block D park and 17 others) spill over the newer plan's street, so that street was never traced. | Only a site's interior (8 m in from its edge) stops a plan street; a site the traced street runs over is cut back to the 40 ft reserve (19 sites, their 3D frames and areas updated, holes for plots kept). 40 to 26 plots. |
+| Plot-number labels drew over the details panel. | The label layer has its own stacking context (`z-index:1`). |
+| No full screen. | Button under the compass and the F key; the map stage fills the screen with the search box and the selected plot's details over it; Esc leaves. Works for both tabs; falls back to filling the window where the Fullscreen API is missing (iPhone Safari). |
+
+New audit checks (`tools/audit.py`): S-shaped steps in street lines, dead-end stubs under 15 m, service-road summary. `python -I tools/audit.py . all` lists every stub.
+
+Audit at this commit: 13,127 plots (13,078 plan outlines, 49 gaps in a plan row, 0 generated); 0 plots on a carriageway, right of way, the nalla, a site, another plot or outside the boundary; plan-street jogs 0 (7 small steps of 1.6 to 2.3 m remain in OpenStreetMap streets at junctions); stubs 6; plots more than 6 m from any street 26 (was 40); service roads 12 lines, 7.0 km (6 measured); non-rectangular plots 273 and plots under 0.6 of their official size 179 (both up by about 10 and 16: the trimmed entrance-road commercial plots); 7 facilities more than 25% off their official area (unchanged).
+
+Tools for checking a spot: `tools/overlay.py` (data over Google satellite, the Google road map or the emap.pk plan).
+
 ## 10. Known flaws and things not verified
+
+- **Entrance-road commercial plots are trimmed**: the plan's rows along the Main Entrance Road (A-1 to about A-31, A-161 to A-194) are shallower than drawn because the real road with its service roads is wider than the plan draws it. Only the FDA's original plan can say where these plots really are.
+- **26 plots still have no street within 6 m.** The largest group, A-244 to A-252 beside Park A-2, faces a plan street that Park A-2's old outline covers for its full width; others sit on streets along the society's outer edge, which the outline cuts to half width so they are not traced.
+- **Lane positions**: lane lines are painted at the centre of each OpenStreetMap carriageway line; where that line is 1 to 2 m off the real asphalt (for example way 376583796 between the south-west roundabout and A/B), so are the lane lines.
 
 - **emap.pk is a third-party redraw** with its watermark. Ask FDA for the original plan (CAD or PDF) and rerun with it.
 - **Plot numbers are OCR**: 2.7% of plots have none and about 1.5% of the numbers are wrong (very small print, upside-down numbers made of 1, 6, 8, 9). Each plot says in `number_source` whether a neighbour confirms its number.
 - **Sub-blocks are estimated**, not read.
-- **About 250 plan plots are not placed** where OpenStreetMap draws a road over the plan's first row (boulevard service roads, one 40 ft street in Block C, the main entrance road in Block A). Each needs a look on Google: either the road or the plan is right.
+- **About 70 plan plot cells are not placed** (was about 250): they lie mostly on a road as built (176 more are trimmed to the road edge instead). The rule since 15 November: a plan plot is kept, trimmed, while at least 35% of it remains. Each left-out cell is listed with its reason when `TERRALYT_DEBUG` is set.
 - Block X site purposes come from the plan's labels only.
 - The Cesium tab now draws the houses and the main gate; it is still untested with a token (terrain, World Imagery).
 - `plot.html` and the top search bar still use the 60-plot sample in `assets/app.js` (Mursaleen's pages).
@@ -202,11 +235,12 @@ Google check: each block's plots were drawn over Google satellite (zoom 19): plo
 
 ## 11. Suggested order for the next work
 
-1. Taha: look at Block X and a few plots per block; send screenshots of anything wrong.
-2. Check the ~250 unplaced plan plots against Google (road or plan).
-3. Improve number reading for Blocks A and X (a better OCR model) and read the sub-block names printed on the plan.
-4. Replace emap.pk with the FDA's own plan if it can be obtained.
-5. Open the pull request for Mursaleen.
+1. Taha: look at the main road (gate to the north-east end), Block X and a few plots per block, in full screen; send screenshots of anything wrong.
+2. Give the 26 plots without a street their street (Park A-2 row: trim Park A-2's old outline to the plan; streets along the society edge: trace them with the outline buffered outwards).
+3. Re-centre the main carriageway lines on the asphalt where they are 1 to 2 m off (rerun `tools/align_roads.py` with a two-lane model), so the lane lines sit on the painted ones.
+4. Improve number reading for Blocks A and X (a better OCR model) and read the sub-block names printed on the plan.
+5. Replace emap.pk with the FDA's own plan if it can be obtained.
+6. Open the pull request for Mursaleen.
 
 ## 12. Graphics
 
