@@ -144,7 +144,7 @@ for pr, ln in RL:
         else:
             continue
         break
-print(f"- street centre lines with an S-shaped sideways step: {len(jogs)}", jogs[:6])
+print(f"- street centre lines with an S-shaped sideways step: {len(jogs)}", jogs[:6] if len(sys.argv) < 3 else jogs)
 ends = Counter()
 for pr, ln in RL:
     for p in (ln.coords[0], ln.coords[-1]): ends[(round(p[0], 1), round(p[1], 1))] += 1
@@ -158,3 +158,25 @@ print(f"- dead-end street stubs under 15 m: {len(stubs)}", stubs[:6] if len(sys.
 svc = [pr for pr, _ in RL if pr["class"] == "service"]
 print(f"- service roads beside the main road: {len(svc)} lines ({sum(1 for p in svc if p.get('source', '').startswith('Measured'))} measured: Google Maps + satellite), "
       f"{sum(ln.length for pr, ln in RL if pr['class'] == 'service') / 1000:.1f} km")
+# houses as the 3D model draws them (the obb rectangle, 94% of its sides): inside their own plot, never on another
+BL = [f for f in D("buildings")]
+pid_of = {p["id"]: i for i, p in enumerate(PP)}
+h_out, h_other, h_none = [], [], 0
+for f in BL:
+    pr = f["properties"]; o = pr["obb"]
+    cx, cy = (o["lon"] - 73.0875) * KX, (o["lat"] - 31.525) * KY
+    a = math.radians(o["angle"]); L, W = o["length"] * .94 / 2, o["width"] * .94 / 2
+    box = Polygon([(cx + math.cos(a) * x - math.sin(a) * y, cy + math.sin(a) * x + math.cos(a) * y) for x, y in ((-L, -W), (L, -W), (L, W), (-L, W))])
+    if pr.get("plot_id") is None:
+        h_none += 1
+        hit = [PP[j]["plot_no"] for j in tree.query(box, predicate="intersects") if box.intersection(PG[j]).area > 1.0]
+        if hit: h_other.append(("(on no plot)", hit[0], None))
+        continue
+    i = pid_of.get(pr["plot_id"])
+    if i is None: continue
+    out = box.difference(PG[i]).area
+    if out > 1.0: h_out.append((pr.get("plot_no"), round(out, 1)))
+    for j in tree.query(box, predicate="intersects"):
+        if j != i and box.intersection(PG[j]).area > 1.0:
+            h_other.append((pr.get("plot_no"), PP[j]["plot_no"], PP[j]["built"])); break
+print(f"- houses drawn outside their own plot (> 1 m2): {len(h_out)} {h_out[:5]}; on another plot: {len(h_other)} {h_other[:5]}; houses on no plot: {h_none}")
