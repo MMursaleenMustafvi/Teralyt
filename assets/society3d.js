@@ -160,6 +160,31 @@ export function Society3D(el, opts = {}) {
   const flags = [], nightSigns = [];
   let plotMesh = null, plotGeom = null, plotLines = null, carSystem = null, frames = 0, built = false;
   let homeTarget = new THREE.Vector3(), homeDist = 2600, axisRad = 0, boundaryPlan = null, blockCentres = null;
+  // point-on-asphalt test (carriageways, roundabout rings, roads outside the society): trees, lamps and other
+  // street furniture must never stand on a road
+  let onAsphalt = () => false;
+  function asphaltIndex(features) {
+    const C = 25, cells = new Map(), items = [];
+    for (const f of features) for (const rings of polysOf(f.geometry)) {
+      const rs = rings.map(ringPlan); if (!rs[0] || rs[0].length < 3) continue;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const [x, y] of rs[0]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      const it = { rs, b: [x0, y0, x1, y1] }, k = items.push(it) - 1;
+      for (let i = Math.floor(x0 / C); i <= Math.floor(x1 / C); i++) for (let j = Math.floor(y0 / C); j <= Math.floor(y1 / C); j++) {
+        const key = i + ',' + j; let l = cells.get(key); if (!l) cells.set(key, l = []); l.push(k);
+      }
+    }
+    return (x, y, margin = 0) => {
+      const near = cells.get(Math.floor(x / C) + ',' + Math.floor(y / C)); if (!near) return false;
+      for (const k of near) {
+        const { rs, b } = items[k];
+        if (x < b[0] - margin || x > b[2] + margin || y < b[1] - margin || y > b[3] + margin) continue;
+        if (pipPlan(x, y, rs[0]) && !rs.slice(1).some(h => pipPlan(x, y, h))) return true;
+        if (margin > 0) for (const r of rs) if (edgeDistPlan(x, y, r) < margin) return true;
+      }
+      return false;
+    };
+  }
   api.filter = { sizes: null, statuses: null, block: null };
 
   // ---- model audit (?audit=1): does any part of a model lie outside its site polygon? ----
@@ -168,16 +193,20 @@ export function Society3D(el, opts = {}) {
     playground: [44, 32], cng: [26, 18], hospital: [70, 50], sports: [60, 40], civic: [50, 34], community: [50, 34], firestation: [34, 26], office: [50, 34], postoffice: [70, 34], graveyard: [16, 12], grid: [30, 20], sewerage: [30, 24] };
   const GREEN_SITES = new Set(['park', 'playground', 'sports', 'university', 'hospital', 'hotel', 'office', 'community']);
   const notePoint = (group, x, z) => { if (opts.audit) (group.userData.pts || (group.userData.pts = [])).push([x, z]); };
-  function auditModel(group, poly, p) {
-    let n = 0, out = 0, maxd = 0; const v = new THREE.Vector3();
-    const test = (x, z) => { n++; if (!pipPlan(x, z, poly)) { const d = edgeDistPlan(x, z, poly); if (d > 1.5) { out++; maxd = Math.max(maxd, d); } } };
+  function auditModel(group, poly, p, holes = []) {
+    let n = 0, out = 0, maxd = 0, inHole = 0; const v = new THREE.Vector3();
+    const test = (x, z) => {
+      n++;
+      if (!pipPlan(x, z, poly)) { const d = edgeDistPlan(x, z, poly); if (d > 1.5) { out++; maxd = Math.max(maxd, d); } }
+      else for (const h of holes) if (pipPlan(x, z, h) && edgeDistPlan(x, z, h) > 1.0) { out++; inHole++; maxd = Math.max(maxd, edgeDistPlan(x, z, h)); break; }
+    };
     group.traverse(o => {
       if (!o.isMesh) return; o.updateMatrix();
       const pa = o.geometry.attributes.position, step = Math.max(1, Math.floor(pa.count / 300));
       for (let i = 0; i < pa.count; i += step) { v.fromBufferAttribute(pa, i).applyMatrix4(o.matrix); test(v.x, v.z); }
     });
     for (const [x, z] of group.userData.pts || []) test(x, z);
-    api.modelAudit.push({ id: p.id, name: p.name, kind: p.kind, checked: n, outside: out, max_m: Math.round(maxd * 10) / 10 });
+    api.modelAudit.push({ id: p.id, name: p.name, kind: p.kind, checked: n, outside: out, on_plots_inside: inHole, max_m: Math.round(maxd * 10) / 10 });
   }
 
   const hooks = {
@@ -211,6 +240,7 @@ export function Society3D(el, opts = {}) {
     layers.stylised.push(addMesh(flatGeom(outer.features, Y.road - .01), M.asphalt));
     layers.stylised.push(addMesh(flatGeom(surface.features, Y.road, f => f.properties.kind !== 'verge'), M.asphalt));
     layers.stylised.push(addMesh(flatGeom(surface.features, Y.verge, f => f.properties.kind === 'verge'), M.verge));
+    onAsphalt = asphaltIndex([...outer.features, ...surface.features.filter(f => f.properties.kind !== 'verge')]);
     // society land that the official block maps leave blank: bare ground with dry scrub, as on site
     layers.stylised.push(addMesh(flatGeom(land.features, Y.lawn + .003, f => f.properties.layer === 'open'), M.scrub));
     // green open space: every piece of land that is not road, plot or facility
@@ -395,7 +425,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   function buildOne(f) {
     const p = f.properties, kind = p.kind;
     const group = new THREE.Group();
-    let L, W, local, sel = null;
+    let L, W, local, sel = null, holes = [];
     if (f.geometry.type === 'Point') {
       const [e, n] = P(...f.geometry.coordinates);
       group.position.set(e, Y.road, -n); group.rotation.y = (p.heading || 0) * PI / 180;
@@ -404,32 +434,34 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       const o = p.obb, [cx, cn] = P(o.lon, o.lat), ca = Math.cos(o.angle * PI / 180), sa = Math.sin(o.angle * PI / 180);
       let a = o.angle * PI / 180, gx = cx, gn = cn;
       L = o.length; W = o.width;
-      local = ringPlan(f.geometry.coordinates[0]).map(([e, n]) => { const de = e - cx, dn = n - cn; return [de * ca + dn * sa, de * sa - dn * ca]; });
+      const toLoc = ring => ringPlan(ring).map(([e, n]) => { const de = e - cx, dn = n - cn; return [de * ca + dn * sa, de * sa - dn * ca]; });
+      local = toLoc(f.geometry.coordinates[0]);
+      holes = f.geometry.coordinates.slice(1).map(toLoc);          // plots the plan puts inside the site
       sel = { c: new THREE.Vector3(cx, Y.land, -cn), rot: a, L, W };
       if (kind !== 'roundabout') {
         // Sites are rarely perfect rectangles (triangular parks, plots cut by a curved road). The model is
         // laid out in the largest rectangle that fits inside the real site, so nothing spills onto roads or
         // neighbouring plots; ground and boundary wall still follow the true outline.
-        const r = inscribedRect(local);
+        const r = inscribedRect(local, 60, 1.0, holes);
         if (r) {
           const rx = (r[0] + r[2]) / 2, rz = (r[1] + r[3]) / 2; let rl = r[2] - r[0], rw = r[3] - r[1];
           gx = cx + rx * ca + rz * sa; gn = cn + rx * sa - rz * ca;
-          local = local.map(([x, z]) => [x - rx, z - rz]);
-          if (rw > rl) { a += PI / 2; local = local.map(([x, z]) => [-z, x]); [rl, rw] = [rw, rl]; }
+          local = local.map(([x, z]) => [x - rx, z - rz]); holes = holes.map(h => h.map(([x, z]) => [x - rx, z - rz]));
+          if (rw > rl) { a += PI / 2; local = local.map(([x, z]) => [-z, x]); holes = holes.map(h => h.map(([x, z]) => [-z, x])); [rl, rw] = [rw, rl]; }
           L = rl; W = rw;
         }
         // a site smaller than the model's natural size gets the same model at reduced scale
         const mn = MIN_SITE[kind] || [18, 14], sc = Math.min(1, L / mn[0], W / mn[1]);
-        if (sc < 1) { group.scale.setScalar(sc); L /= sc; W /= sc; local = local.map(([x, z]) => [x / sc, z / sc]); }
+        if (sc < 1) { group.scale.setScalar(sc); L /= sc; W /= sc; local = local.map(([x, z]) => [x / sc, z / sc]); holes = holes.map(h => h.map(([x, z]) => [x / sc, z / sc])); }
       }
       group.position.set(gx, kind === 'roundabout' ? Y.road : Y.land, -gn); group.rotation.y = a;
     }
     scene.add(group); group.updateMatrixWorld(true);
-    const k = makeKit(group, M, local, hooks);
-    group.userData.poly = local;
-    if (kind === 'gate') buildGate(k, W); else buildLandmark(kind, k, L, W, p);
+    const k = makeKit(group, M, local, hooks, holes);
+    group.userData.poly = local; group.userData.holes = holes;
+    if (kind === 'gate') buildGate(k, W, p.asphalt); else buildLandmark(kind, k, L, W, p);
     if (sel && GREEN_SITES.has(kind)) k.fillTrees([[-L / 2 - 1, -W / 2 - 1, L / 2 + 1, W / 2 + 1]], 9, p.id * 7 + 1);   // plant what the rectangle leaves over
-    if (opts.audit && sel && kind !== 'roundabout') auditModel(group, local, p);
+    if (opts.audit && sel && kind !== 'roundabout') auditModel(group, local, p, holes);
     const info = Object.assign({}, p, { _group: sel ? { rotation: { y: sel.rot } } : group, _top: Math.max(4, k.top * group.scale.y), _L: sel ? sel.L : L, _W: sel ? sel.W : W, _center: sel ? sel.c : group.position.clone() });
     lmById.set(p.id, info); api.landmarks.push(info); lmGroups.push(group);
     group.userData.lm = p.id;
@@ -636,6 +668,12 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   function buildInstances() {
     const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .92 });
     const r = rng(5), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
+    // nothing stands on a road: drop trees whose trunk and lamps whose pole fall on asphalt (median openings, junctions,
+    // the narrow strips by the gate, bends where a carriageway line is a little off)
+    let dropped = 0;
+    for (const type of Object.keys(trees)) { const n0 = trees[type].length; trees[type] = trees[type].filter(t => !onAsphalt(t[0], -t[2], .4)); dropped += n0 - trees[type].length; }
+    for (const kind of Object.keys(lamps)) { const n0 = lamps[kind].length; lamps[kind] = lamps[kind].filter(l => !onAsphalt(l[0], -l[2], .25)); dropped += n0 - lamps[kind].length; }
+    api.furnitureOffRoad = dropped;
     for (const type of Object.keys(trees)) {
       const list = trees[type]; if (!list.length) continue;
       const im = new THREE.InstancedMesh(treeGeo[type](), treeMat, list.length);
@@ -721,7 +759,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       if (lm.kind === 'roundabout' && !lm.monument) continue;
       const o = label(lm.name, 's3d-lbl', KIND_COLOR[lm.kind]);
       o.position.copy(lm._center).setY(lm._top + 4); o.userData.lm = lm; scene.add(o); lmLabels.push(o);
-      o.element.addEventListener('click', e => { e.stopPropagation(); selectLandmark(lm.id); });
+      passToMap(o.element, () => selectLandmark(lm.id));
     }
     const sums = {};
     for (const p of api.plots) { const s = sums[p.block] || (sums[p.block] = [0, 0, 0]); s[0] += p._c[0]; s[1] += p._c[1]; s[2]++; }
@@ -729,7 +767,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       const L = b.slice(-1), s = sums[b], c = blockCentres && blockCentres[L] ? blockCentres[L] : [s[0] / s[2], s[1] / s[2]];
       const o = label(b.toUpperCase(), 's3d-blk'); o.position.set(c[0], 70, -c[1]); o.userData.block = L; scene.add(o); blockLabels.push(o);
       o.element.style.pointerEvents = 'auto'; o.element.style.cursor = 'pointer';
-      o.element.addEventListener('click', e => { e.stopPropagation(); flyToBlock(L); if (opts.onBlock) opts.onBlock(blockStats(L)); });
+      passToMap(o.element, () => { flyToBlock(L); if (opts.onBlock) opts.onBlock(blockStats(L)); });
     }
     for (const f of api._context || []) { const [e, n] = P(...f.geometry.coordinates), o = label(f.properties.name, 's3d-ctx'); o.position.set(e, 40, -n); scene.add(o); blockLabels.push(o); }
     for (let i = 0; i < 160; i++) { const o = label('', 's3d-pn'); o.visible = false; scene.add(o); plotLabelPool.push(o); }
@@ -803,9 +841,28 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     }
     return null;
   }
-  let down = null, hoverT = 0;
+  let down = null, hoverT = 0, labelDown = null;
+  // Site names and block letters can be clicked, but a drag that starts on one must still pan, turn or tilt the map
+  // (before, a drag that began on a label did nothing). The press is passed on to the map; a press that does not
+  // move is the label's click.
+  function passToMap(elm, action) {
+    elm.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      labelDown = { x: e.clientX, y: e.clientY, action };
+      renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', e));
+    });
+    elm.addEventListener('pointerup', e => labelUp(e));
+    elm.addEventListener('contextmenu', e => e.preventDefault());
+  }
+  function labelUp(e) {
+    if (!labelDown) return false;
+    const ld = labelDown; labelDown = null; down = null;
+    if (Math.hypot(e.clientX - ld.x, e.clientY - ld.y) <= 6) ld.action();
+    return true;
+  }
   renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
   renderer.domElement.addEventListener('pointerup', e => {
+    if (labelUp(e)) return;
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6 || !built) { down = null; return; }
     down = null;
     const h = pickAt(e.clientX, e.clientY);
@@ -1026,7 +1083,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   function buildMinimap() {
     const wrap = document.createElement('div'); wrap.className = 's3d-mini';
     const c = document.createElement('canvas'); const S = 176; c.width = c.height = S * 2; c.style.width = c.style.height = S + 'px'; wrap.appendChild(c);
-    const comp = document.createElement('button'); comp.className = 's3d-compass'; comp.title = 'Face north'; comp.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 2l4 10h-8z" fill="#e05a47"/><path d="M12 22l-4-10h8z" fill="#e8dfc8"/></svg>';
+    const comp = document.createElement('button'); comp.className = 's3d-compass'; comp.title = 'Face north (click) · drag sideways to turn'; comp.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 2l4 10h-8z" fill="#e05a47"/><path d="M12 22l-4-10h8z" fill="#e8dfc8"/></svg>';
     el.appendChild(wrap); el.appendChild(comp);
     let minE = Infinity, maxE = -Infinity, minN = Infinity, maxN = -Infinity;
     for (const [e, n] of boundaryPlan) { minE = Math.min(minE, e); maxE = Math.max(maxE, e); minN = Math.min(minN, n); maxN = Math.max(maxN, n); }
@@ -1052,7 +1109,43 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       comp.style.transform = `rotate(${az + PI}rad)`;
     };
     c.addEventListener('click', e => { const r = c.getBoundingClientRect(), [pe, pn] = toPlan((e.clientX - r.left) * 2, (e.clientY - r.top) * 2); flyTo(new THREE.Vector3(pe, 0, -pn), Math.min(camera.position.distanceTo(controls.target), 900)); });
-    comp.addEventListener('click', () => flyTo(controls.target.clone(), camera.position.distanceTo(controls.target), null, 0, .8));
+    // turning and tilting without a right mouse button (touchpads, phones): buttons under the compass (press and
+    // hold to keep turning), dragging the compass, the arrow keys, or Shift + drag on the map
+    let compDrag = null;
+    comp.addEventListener('click', e => { if (compDrag && compDrag.moved) return; flyTo(controls.target.clone(), camera.position.distanceTo(controls.target), currentPolar(), 0, .8); });
+    comp.addEventListener('pointerdown', e => { compDrag = { x: e.clientX, moved: false }; comp.setPointerCapture(e.pointerId); });
+    comp.addEventListener('pointermove', e => { if (!compDrag) return; const dx = e.clientX - compDrag.x; if (Math.abs(dx) > 2) { compDrag.moved = true; compDrag.x = e.clientX; turnNow(-dx * .012, 0); } });
+    comp.addEventListener('pointerup', () => setTimeout(() => { compDrag = null; }, 0));
+    const turnPad = document.createElement('div'); turnPad.className = 's3d-pad';
+    const BTN = [['rl', 'Turn left (←)', '<path d="M8 5H3v5"/><path d="M3.5 9.5A8.5 8.5 0 1 1 6 18"/>', -1, 0], ['rr', 'Turn right (→)', '<path d="M16 5h5v5"/><path d="M20.5 9.5A8.5 8.5 0 1 0 18 18"/>', 1, 0],
+      ['tu', 'Look more from above (↑)', '<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/>', 0, -1], ['td', 'Tilt towards the horizon (↓)', '<path d="M12 5v14"/><path d="M6 13l6 6 6-6"/>', 0, 1]];
+    for (const [id, title, svg, dr, dt] of BTN) {
+      const b = document.createElement('button'); b.className = 's3d-pbtn'; b.title = title; b.setAttribute('aria-label', title);
+      b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' + svg + '</svg>';
+      let rep = null;
+      const stop = () => { if (rep) { clearInterval(rep); rep = null; } };
+      b.addEventListener('pointerdown', e => { e.preventDefault(); turnBy(dr * PI / 8, dt * .14); stop(); const t0 = performance.now(); rep = setInterval(() => { if (performance.now() - t0 > 380) turnNow(dr * .045, dt * .02); }, 30); });
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
+      turnPad.appendChild(b);
+    }
+    el.appendChild(turnPad);
+    addEventListener('keydown', e => {
+      if (!el.offsetParent || e.ctrlKey || e.metaKey || e.altKey || (e.target && e.target.closest && e.target.closest('input,textarea,select'))) return;
+      const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]; if (!k) return;
+      e.preventDefault(); turnNow(k[0] * .06, k[1] * .035);
+    });
+  }
+  const currentPolar = () => { sph.setFromVector3(camera.position.clone().sub(controls.target)); return sph.phi; };
+  // turn the view about the point looked at: dAz radians to the right, dPolar radians towards the horizon
+  function turnBy(dAz, dPolar, dur = .45) {
+    const off = camera.position.clone().sub(controls.target); sph.setFromVector3(off);
+    flyTo(controls.target.clone(), sph.radius, Math.max(.02, Math.min(controls.maxPolarAngle, sph.phi + dPolar)), sph.theta - dAz, dur);
+  }
+  function turnNow(dAz, dPolar) {
+    flight = null;
+    const off = camera.position.clone().sub(controls.target); sph.setFromVector3(off);
+    sph.theta -= dAz; sph.phi = Math.max(.02, Math.min(controls.maxPolarAngle, sph.phi + dPolar));
+    camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(sph)); camera.lookAt(controls.target);
   }
 
   // ---- loop ------------------------------------------------------------------------
@@ -1094,7 +1187,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
 
   Object.assign(api, {
     setLayer, setTime, setGround, setLabels, setFilter, blockStats, select, selectLandmark, clearSelection, reset, flyToBlock, search, flyTo: (e, n, dist, polar, az, dur) => flyTo(new THREE.Vector3(e, 0, -n), dist, polar, az, dur),
-    zoomIn: () => zoomBy(1.7), zoomOut: () => zoomBy(1 / 1.7),
+    turn: (deg, tilt = 0) => turnBy(deg * PI / 180, tilt * PI / 180), zoomIn: () => zoomBy(1.7), zoomOut: () => zoomBy(1 / 1.7),
     get: id => { const p = byId.get(+id); return p ? publicProps(p) : null; },
     getLandmark: id => { const lm = lmById.get(+id); return lm ? publicLm(lm) : null; },
     rendered: () => built && frames > 3, requestRender: () => {}, resize
@@ -1110,7 +1203,7 @@ function pipPlan(x, y, poly) {
   return ins;
 }
 // Largest axis-aligned rectangle inside a polygon (points [x, z]); returns [x0, z0, x1, z1] or null.
-function inscribedRect(poly, n = 60, margin = 1.0) {
+function inscribedRect(poly, n = 60, margin = 1.0, holes = []) {
   let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
   for (const [x, z] of poly) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); minz = Math.min(minz, z); maxz = Math.max(maxz, z); }
   const cs = Math.max(maxx - minx, maxz - minz) / n; if (!(cs > 0)) return null;
@@ -1119,7 +1212,9 @@ function inscribedRect(poly, n = 60, margin = 1.0) {
   for (let r = 0; r < rows; r++) {
     const z = minz + (r + .5) * cs;
     for (let c = 0; c < cols; c++) {
-      const x = minx + (c + .5) * cs, d = pipPlan(x, z, poly) ? edgeDistPlan(x, z, poly) : 0;
+      const x = minx + (c + .5) * cs;
+      let d = pipPlan(x, z, poly) ? edgeDistPlan(x, z, poly) : 0;
+      for (const hl of holes) { if (d <= 0) break; d = pipPlan(x, z, hl) ? 0 : Math.min(d, edgeDistPlan(x, z, hl)); }
       if (d > deep[0]) deep = [d, x, z];
       h[c] = d > cs * .75 + margin ? h[c] + 1 : 0;
     }
@@ -1191,6 +1286,10 @@ function injectCss() {
 .s3d-mini canvas{display:block}
 .s3d-compass{position:absolute;right:14px;top:14px;width:38px;height:38px;border-radius:50%;border:1px solid rgba(227,207,165,.3);background:rgba(20,14,9,.85);cursor:pointer;padding:6px;z-index:3}
 .s3d-compass svg{width:100%;height:100%}
+.s3d-pad{position:absolute;right:14px;top:106px;display:flex;flex-direction:column;gap:6px;z-index:3}
+.s3d-pbtn{width:38px;height:38px;border-radius:50%;border:1px solid rgba(227,207,165,.3);background:rgba(20,14,9,.85);color:#f3ead8;cursor:pointer;padding:9px;touch-action:none}
+.s3d-pbtn:hover{border-color:#7bd08b;color:#7bd08b}.s3d-pbtn svg{display:block;width:100%;height:100%}
+.s3d-compass{touch-action:none}
 @media(max-width:760px){.s3d-mini{display:none}}`;
   document.head.appendChild(s);
 }

@@ -989,6 +989,65 @@ def load_buildings():
     return out
 
 
+def _runs(mask):
+    """index pairs (first, last) of the runs of True in a 1-D boolean array"""
+    out, i, n = [], 0, len(mask)
+    while i < n:
+        if mask[i]:
+            j = i
+            while j + 1 < n and mask[j + 1]:
+                j += 1
+            out.append((i, j))
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
+def inscribed_rect(poly, angle_deg, res=0.2, min_side=2.5):
+    """Largest rectangle inside `poly` with its sides along `angle_deg` (the plot's long side), as an obb dict
+    (centre lon/lat, angle of the long side, length >= width), or None when nothing min_side wide fits.
+    The 3D house is drawn in this rectangle, so it stays inside its piece of plot."""
+    import cv2
+    a = math.radians(angle_deg)
+    c = poly.centroid
+    q = affinity.rotate(poly, -angle_deg, origin=c)
+    minx, miny, maxx, maxy = q.bounds
+    W, H = int(math.ceil((maxx - minx) / res)) + 2, int(math.ceil((maxy - miny) / res)) + 2
+    img = np.zeros((H, W), np.uint8)
+    for g in polys(q):
+        cv2.fillPoly(img, [np.round((np.array(g.exterior.coords) - (minx, miny)) / res).astype(np.int32)], 1)
+        for r in g.interiors:
+            cv2.fillPoly(img, [np.round((np.array(r.coords) - (minx, miny)) / res).astype(np.int32)], 0)
+    img = cv2.erode(img, np.ones((2, 2), np.uint8))          # stay just inside the edge
+    best, h = (0, 0, 0, 0, 0), np.zeros(W, int)
+    for y in range(H):
+        h = np.where(img[y] > 0, h + 1, 0)
+        stack = []
+        for x in range(W + 1):
+            cur = h[x] if x < W else 0
+            start = x
+            while stack and stack[-1][1] >= cur:
+                s0, hh = stack.pop()
+                area = hh * (x - s0)
+                if area > best[0]:
+                    best = (area, s0, x, y - hh + 1, y + 1)
+                start = s0
+            stack.append((start, cur))
+    area, x0, x1, y0, y1 = best
+    L, Wd = (x1 - x0) * res, (y1 - y0) * res
+    if min(L, Wd) < min_side:
+        return None
+    cx, cy = minx + (x0 + x1) / 2 * res, miny + (y0 + y1) / 2 * res
+    p = affinity.rotate(Point(cx, cy), angle_deg, origin=c)
+    ang = angle_deg
+    if Wd > L:
+        L, Wd, ang = Wd, L, angle_deg + 90
+    ang = (ang + 90) % 180 - 90
+    lon, lat = ll(p.x, p.y)
+    return {"lon": lon, "lat": lat, "angle": round(ang, 2), "length": round(L, 1), "width": round(Wd, 1)}
+
+
 def size_by_area(a):
     return "5 Marla" if a < 175 else "10 Marla" if a < 360 else "20 Marla"
 
@@ -1220,6 +1279,23 @@ def main():
             if have < 0.5 * ln.length:
                 roads.append({"id": None, "name": item.get("name"), "oneway": False, "line": ln, "cls": cls, "planned": True})
     measured = service_roads()
+    osm_svc = [d["line"] for d in roads if d["cls"] == "service"]
+    if measured and osm_svc:
+        # where a measured service road runs on into one OpenStreetMap already has, it joins it instead of running
+        # alongside it a metre or two off (a kink, two roads side by side)
+        su = unary_union(osm_svc)
+        joined = []
+        for m in measured:
+            cs = list(m.coords)
+            for _ in range(2):
+                while len(cs) > 2 and su.distance(Point(cs[0])) < 4.5 and su.distance(Point(cs[1])) < 4.5:
+                    cs.pop(0)
+                if su.distance(Point(cs[0])) < 6.0:
+                    cs[0] = su.interpolate(su.project(Point(cs[0]))).coords[0]
+                cs.reverse()
+            if LineString(cs).length > 20:
+                joined.append(dejog(LineString(cs), max_lat=4.0))
+        measured = joined
     if measured:
         # service roads beside the main road that OpenStreetMap does not map (tools/service_roads.py: Google Maps shows
         # them, the position is measured on Google satellite imagery). An OpenStreetMap street drawn along one of them
@@ -1583,9 +1659,22 @@ def main():
         gp = Point((qa.x + qb.x) / 2, (qa.y + qb.y) / 2)
         GATE["span"] = round(math.dist((qa.x, qa.y), (qb.x, qb.y)) + WIDTH["main"] + 2.5, 1)
     gv = direction_at(gl, gp)
+    # The asphalt across the gate (both main carriageways and the service roads beside them), in the 3D model's own
+    # frame (z across the road, = minus the distance to the left of the road direction). The model puts its towers
+    # beyond the outermost asphalt and its pier and guard room on the median: nothing of it stands on a road.
+    nv = (-gv[1], gv[0])
+    ts = np.arange(-45.0, 45.01, 0.1)
+    on_road = shapely.contains_xy(carriage, gp.x + nv[0] * ts, gp.y + nv[1] * ts)
+    bands = []
+    for a_, b_ in [(ts[i], ts[j]) for i, j in _runs(on_road)]:
+        mid = Point(gp.x + nv[0] * (a_ + b_) / 2, gp.y + nv[1] * (a_ + b_) / 2)
+        near = min((d for d in roads if d["cls"] in ("main", "service")), key=lambda d: d["line"].distance(mid))
+        bands.append([round(-b_ - 0.05, 2), round(-a_ + 0.05, 2), near["cls"]])
+    bands.sort()
     gate_feat = feature(gp, {"id": 0, "kind": "gate", "name": "FDA City Main Gate", "block": None, "area_kanal": None, "proposed": False,
-                             "heading": round(math.degrees(math.atan2(gv[1], gv[0])), 1), "span": GATE["span"], "accuracy": "georeferenced",
+                             "heading": round(math.degrees(math.atan2(gv[1], gv[0])), 1), "span": GATE["span"], "asphalt": bands, "accuracy": "georeferenced",
                              "source": "Official Block A map (Main Entrance Road); position and span measured on satellite imagery"})
+    print("gate: asphalt across it (local z from, to, road):", bands)
     # the official maps repeat some park names (E-3, E-5, C-4): tell them apart by position
     by_name = {}
     for f in landmarks:
@@ -1973,7 +2062,7 @@ def main():
     bfeats = []
     road_all = unary_union([carriage] + ([new_carriage] if new_carriage is not None else [])
                            + [clean(q.buffer(-(ROW["planned"] - WIDTH["planned"]) / 2, join_style=2)) for q in planned_streets])
-    n_road = 0
+    n_road = n_split = n_trim = 0
     btaken = []
     for g, pr in sorted(bld, key=lambda t: -t[0].area):
         if any(g.intersection(o).area > 0.5 * g.area for o in btaken if o.intersects(g)):
@@ -1983,20 +2072,42 @@ def main():
             continue
         if site_u.contains(g.representative_point()):
             continue                                        # inside a facility site: drawn by that site's own model
-        best, ba = None, 0
-        for i in ktree.query(g):
-            a = kept[i][0].intersection(g).area
-            if a > ba:
-                best, ba = i, a
-        on = int(best) if (best is not None and ba >= max(20.0, 0.1 * kept[best][0].area)) else None
+        cover = sorted(((kept[i][0].intersection(g).area, int(i)) for i in ktree.query(g)), reverse=True)
+        cover = [(a, i) for a, i in cover if a > 0.5]
         btaken.append(g)
-        mrr = obb(g)
         storeys = 1 if g.area < 70 else 2 if g.area < 420 else 3
-        if on is not None:
-            built_on.setdefault(on, []).append(len(bfeats))
-        bfeats.append((g, {"id": len(bfeats) + 1, "plot_index": on, "area_m2": round(g.area), "storeys": storeys, "height": round(3.5 * storeys, 1), "height_source": "assumed",
-                           "obb": mrr, "dataset": pr.get("dataset"), "source": BUILT_SOURCE, "accuracy": "georeferenced"}))
-    print(f"buildings standing today: {len(bfeats)} footprints, on {len(built_on)} plots; {n_road} footprints left out because they lie on a mapped road")
+        base = {"area_m2": round(g.area), "storeys": storeys, "height": round(3.5 * storeys, 1), "height_source": "assumed",
+                "dataset": pr.get("dataset"), "source": BUILT_SOURCE, "accuracy": "georeferenced"}
+        if not cover or cover[0][0] < max(20.0, 0.1 * kept[cover[0][1]][0].area):
+            # on no plot (open land, a verge, village houses on land the plan has not laid out yet): drawn as it
+            # stands, but kept off the plots it touches
+            rest = g
+            if cover:
+                rest = largest(clean(g.difference(unary_union([kept[i][0].buffer(0.35, join_style=2) for _, i in cover]))))
+            rect = inscribed_rect(rest, obb(rest)["angle"]) if rest is not None and rest.area >= 12 else None
+            if rect is not None:
+                bfeats.append((clean(rest.simplify(0.1)), dict(base, id=len(bfeats) + 1, plot_index=None, obb=rect)))
+            continue
+        # A footprint rarely matches the plot lines exactly. Where it covers a good part of a neighbouring plot too
+        # (at least 30 m2 and a fifth of that plot), the house was built across both plots: both are built, and the
+        # house is drawn on each, split at the plot line. Where it only pokes a metre or two over (registration of
+        # the plan, or the footprint detection), it is trimmed to its own plot. No house is drawn over a plot line.
+        own = cover[0][1]
+        on_plots = [own] + [i for a, i in cover[1:] if a >= 30.0 and a >= 0.2 * kept[i][0].area]
+        n_split += len(on_plots) > 1
+        n_trim += any(a > 2.0 for a, i in cover if i not in on_plots)
+        for i in on_plots:
+            piece = largest(clean(g.intersection(kept[i][0].buffer(-0.35, join_style=2))))
+            if piece is None or piece.area < 12:
+                continue
+            rect = inscribed_rect(piece, obb(kept[i][0])["angle"])
+            if rect is None:
+                continue
+            built_on.setdefault(i, []).append(len(bfeats))
+            bfeats.append((clean(piece.simplify(0.1)), dict(base, id=len(bfeats) + 1, plot_index=i, obb=rect, area_m2=round(piece.area),
+                                                            footprint_m2=round(g.area), split=len(on_plots) > 1 or None)))
+    print(f"buildings standing today: {len(bfeats)} houses (from footprints), on {len(built_on)} plots; {n_split} footprints span two or more plots "
+          f"(split at the plot line, each plot built); {n_trim} poked over a plot line and were trimmed; {n_road} left out because they lie on a mapped road")
     # development around each plot: share of built plots within 150 m
     cen = np.array([[pg.centroid.x, pg.centroid.y] for pg, _, _ in kept]) if kept else np.zeros((0, 2))
     is_built = np.array([i in built_on for i in range(len(kept))])
@@ -2248,7 +2359,21 @@ def main():
             if r.area > 60:
                 land_feats.append(feature(r, {"layer": "open", "kind": "open", "use": "not plotted on the official block maps", "area_m2": round(r.area), "accuracy": "approximate"}))
     write(out, "blocks", land_feats)
-    gate_feat["properties"]["id"] = len(landmarks) + 1
+    # Sites from the older fdacity.pk maps that the newer plan (emap.pk) covers with plots or a street keep only
+    # slivers between those plots (Mosque F-1 lies on plots 281-295, Shops Block A on a street, Park C-3 on plots
+    # 87-112). A site with under 30 m2 of usable land (2.5 m in from every edge) is not on the newer plan: dropped.
+    gone = []
+    for f in list(landmarks):
+        g_ = f["geometry"]
+        if g_["type"] != "Polygon" or f["properties"]["kind"] == "roundabout":
+            continue
+        rg = g_["coordinates"]
+        net = clean(Polygon([xy(*c) for c in rg[0]], [[xy(*c) for c in r] for r in rg[1:]]))
+        if net.buffer(-2.5).area < 30:
+            gone.append(f["properties"]["name"])
+            landmarks.remove(f)
+    print(f"sites the newer plan covers with plots or a street (slivers left), dropped: {gone}")
+    gate_feat["properties"]["id"] = max([f["properties"]["id"] for f in landmarks] + [0]) + 1
     write(out, "landmarks", landmarks + [gate_feat])
     write(out, "buildings", [feature(clean(g.simplify(0.15)), pr) for g, pr in bfeats],
           {"data_note": "Buildings standing today: footprints detected on satellite imagery (Google Open Buildings, Microsoft ML Buildings, via Overture Maps). Heights are assumed."})
