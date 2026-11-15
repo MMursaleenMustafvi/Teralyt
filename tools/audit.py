@@ -123,3 +123,38 @@ gaps = [q for q in (B.difference(cover).geoms if hasattr(B.difference(cover), "g
 print(f"- empty land patches > 600 m2 inside boundary (no plot, road or facility): {len(gaps)}, total {sum(q.area for q in gaps)/1e4:.1f} ha; largest {[round(q.area) for q in sorted(gaps, key=lambda q: -q.area)[:8]]}")
 for q in sorted(gaps, key=lambda q: -q.area)[:5]:
     c = q.representative_point(); print(f"     gap {q.area:.0f} m2 at {31.525 + c.y / KY:.5f}, {73.0875 + c.x / KX:.5f}")
+# streets: S-shaped sideways steps (two opposite bends a few metres apart between parallel legs) and short dead ends
+RL = [(f["properties"], tom(shape(f["geometry"]))) for f in roads if f["geometry"]["type"] == "LineString"]
+jogs = []
+for pr, ln in RL:
+    c = list(ln.coords)
+    for i in range(len(c) - 3):
+        a0, a1 = c[i], c[i + 1]; la = math.dist(a0, a1)
+        if la < 8: continue
+        ua = ((a1[0] - a0[0]) / la, (a1[1] - a0[1]) / la); mid = 0.0
+        for k in range(i + 2, min(len(c) - 1, i + 5)):
+            mid += math.dist(c[k - 1], c[k])
+            if mid > 20: break
+            b0, b1 = c[k], c[k + 1]; lb = math.dist(b0, b1)
+            if lb < 8: continue
+            if (ua[0] * (b1[0] - b0[0]) + ua[1] * (b1[1] - b0[1])) / lb < math.cos(math.radians(10)): continue
+            lat = ua[0] * (b0[1] - a1[1]) - ua[1] * (b0[0] - a1[0])
+            if 1.5 <= abs(lat) <= 8:
+                jogs.append((pr.get("source"), round(31.525 + a1[1] / KY, 5), round(73.0875 + a1[0] / KX, 5), round(lat, 1))); break
+        else:
+            continue
+        break
+print(f"- street centre lines with an S-shaped sideways step: {len(jogs)}", jogs[:6])
+ends = Counter()
+for pr, ln in RL:
+    for p in (ln.coords[0], ln.coords[-1]): ends[(round(p[0], 1), round(p[1], 1))] += 1
+lt = STRtree([ln for _, ln in RL])
+stubs = []
+for pr, ln in RL:
+    if ln.length >= 15 or pr["class"] in ("roundabout", "highway"): continue
+    free = [p for p in (ln.coords[0], ln.coords[-1]) if sum(1 for j in lt.query(Point(p).buffer(1.5)) if RL[j][1] is not ln and RL[j][1].distance(Point(p)) < 1.5) == 0]
+    if free: stubs.append((pr.get("source"), round(ln.length, 1), round(31.525 + free[0][1] / KY, 5), round(73.0875 + free[0][0] / KX, 5)))
+print(f"- dead-end street stubs under 15 m: {len(stubs)}", stubs[:6] if len(sys.argv) < 3 else stubs)
+svc = [pr for pr, _ in RL if pr["class"] == "service"]
+print(f"- service roads beside the main road: {len(svc)} lines ({sum(1 for p in svc if p.get('source', '').startswith('Measured'))} measured: Google Maps + satellite), "
+      f"{sum(ln.length for pr, ln in RL if pr['class'] == 'service') / 1000:.1f} km")
