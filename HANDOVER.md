@@ -233,6 +233,20 @@ Taha's next screenshots: house A-270 standing half on vacant A-271; houses over 
 | Five sites from the older fdacity.pk maps lie where the newer plan has plots or a street (Mosque F-1 on plots 281-295, Shops Block A on a street, Park C-3 on plots 87-112, Dispensary C and Shops Park C-1 as slivers); only slivers were left and a mosque model stood on two plots. | `make_data.py` drops a site with under 30 m2 of usable land (2.5 m in from every edge). The plan's real dispensary in Block C (the green "DIS" site) is not placed yet. |
 | Turning and tilting needed the right mouse button (impossible on a touchpad). | Buttons under the compass: turn left / right, tilt up / down (click, or hold to keep turning); drag the compass sideways; arrow keys; Shift + drag (built into the controls). All work in full screen. `api.turn(deg, tilt)`. |
 
+### Later on 15 November (Taha's screenshots of bridges, the service road, a broken street, a "park")
+
+| Finding | Fix |
+| --- | --- |
+| No divider between a main carriageway and its service road by the gate and along the Main Entrance Road: the asphalt of both is 1 to 2 m apart there, so the road faces left no strip and the two roads ran together. | `make_data.py` lays out a kerbed divider (at least 0.9 m) from the two centre lines wherever they run side by side less than 3 m apart, open where a side street or slip road joins (9 pieces, 1.1 km). |
+| Cars on the service roads drove both ways (one looked wrong-way). | A service road is one-way in the direction of the main carriageway beside it (line oriented in `make_data.py`, `oneway: true`). |
+| Bridge railings running across the road (F-256, F-319) and a broken junction where Iqra Road (a dual road, two one-way carriageways 10 m apart, confirmed on Google Maps) crosses the nalla. | Crossings close together are one bridge: the carriageways of a dual road share one bridge with railings on its outer edges (4); a side street meeting a road at the channel gets no bridge of its own (3). 37 crossings, 30 bridges. |
+| A 40 ft street broken by a green patch (F-33 / F-132) and 5 more streets broken into pieces (printed numbers or names across the plan's street). | `join_street_gaps`: two street ends facing each other in line under 16 m apart, with no plot between, are joined (then straightened). |
+| A plan street tapering to a point behind A-177 (A1) where plots press on it. | Plan-street asphalt narrower than 3 m is cut off (morphological opening of the new carriageway). |
+| A "park" by F-106 that the plan labels EXISTING GRAVE YARD (brown). | Open land the plan paints graveyard brown (63% here) becomes a graveyard site (`EmapPlan.colour_share`, `GRAVE_COLOURS`): 2 found. |
+| The browser could keep an old copy of the map scripts after an update. | Version tags on the module imports (`society3d.js?v=...`, `models3d.js?v=...`, `map3d.js?v=...`); change them with each update. |
+
+The road fork with a long green island near A-212 / A-233 is drawn on the plan that way (two lanes round a planted island) and is kept.
+
 emap.pk: the plots, plot numbers, streets inside the society and Block X already come from it (section 7). It does not cover the area outside the society (the gate and the first 300 m of the Main Entrance Road), so there the road layout is OpenStreetMap plus measurements on Google imagery.
 
 ## 10. Known flaws and things not verified

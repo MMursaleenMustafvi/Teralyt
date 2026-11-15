@@ -18,7 +18,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createMaterials, makeKit, buildLandmark, buildGate, buildHouse, rng } from './models3d.js';
+import { createMaterials, makeKit, buildLandmark, buildGate, buildHouse, rng } from './models3d.js?v=20261115d';
 
 const PI = Math.PI;
 const LAT_REF = 31.525, KX = 111320 * Math.cos(LAT_REF * PI / 180), KY = 111320;
