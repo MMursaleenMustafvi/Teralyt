@@ -262,7 +262,7 @@ emap.pk: the plots, plot numbers, streets inside the society and Block X already
 - Block X site purposes come from the plan's labels only.
 - The Cesium tab now draws the houses and the main gate; it is still untested with a token (terrain, World Imagery).
 - `plot.html` and the top search bar still use the 60-plot sample in `assets/app.js` (Mursaleen's pages).
-- Buildings are simple shapes; speed on real hardware untested; the footprint data is from about 2023.
+- Houses are illustrative (real footprint and position, assumed look and storeys); speed on real hardware untested; the footprint data is from about 2023.
 
 ## 11. Suggested order for the next work
 
@@ -277,17 +277,30 @@ emap.pk: the plots, plot numbers, streets inside the society and Block X already
 
 Done on 13 November 2026: the main gate model, houses with porches, roof stair rooms, tanks, boundary walls and gates, evening light with long shadows, bare scrub ground for unplotted land.
 
-Still open, in the order discussed with Taha:
+Done on 15 November 2026 (night), Taha's "proper 3D models, photo textures, softer shadows":
 
-1. Replace the box buildings with ready-made glTF models (mosque, school, hospital, shops, trees).
-2. Use photo-based textures for asphalt, grass, paving, brick and soil.
-3. Add ambient occlusion.
-4. Softer shadows and distance haze.
-5. Plot detail: corner markers, plot number on the ground when zoomed in.
-6. Better water for the nalla and park lakes.
-7. People, running fountains.
-8. A cinematic opening camera move and icon labels.
-9. Level of detail, so the extra graphics stay fast.
+| Item | What changed | Where |
+| --- | --- | --- |
+| Photo textures | Roads, grass, lawns, verges, vacant land, plots, footpaths, roofs, walls and gates use real photographs (CC0, ambientCG, 512 px, 0.5 MB in all; `assets/tex/`, credits in `assets/tex/README.md`, rebuilt by `tools/make_textures.py`). Each photo is tinted to the colour the map used before, so the palette and legend are unchanged. A shader blends each ground photo with a rotated copy of itself in patches and adds slow brightness changes, so the repeat does not show over a road or lawn. Facades are drawn on photographed plaster or brick. If the photos cannot load, the drawn textures stay. | `usePhoto`, `antiTile`, `photoWall` in `models3d.js` |
+| Softer shadows | Sun shadows use a wider filter (PCF, radius 2.4) and let 14% of the light through (sky light), so edges are soft and shade is not black. | `society3d.js` (renderer and sun set-up) |
+| Ambient occlusion (cheap) | Walls darken towards the ground (shader, by height); every building has a soft contact shadow on the ground round it; every tree a soft round shadow under it. No extra render pass, so it costs little. | `groundShade`, `aoSkirt` in `models3d.js`; tree shadows in `buildInstances` |
+| Houses | Rebuilt as houses in Faisalabad's societies are built: stone plinth, plastered walls with sunshades over the windows and dark aluminium frames, floor slabs showing on the walls, a stone, brick or dark-tile feature panel on the front, a car porch with a terrace and steel railing (deep houses of 2+ storeys), a canopy over the door, parapet with coping, stair room with door, black and white water tanks, air conditioners, and on half the roofs a row of solar panels facing south. Each house is turned so that its front faces its street (490 of 572; the rest keep the long side), and each built plot's gate is on the side that faces the street. Steel gates have ribs. | `buildHouse` in `models3d.js`; `buildHouses` in `society3d.js` |
+| Cars | A sedan body from its side profile with rounded edges, windscreens and side glass, wheels with rims, lamps (was two boxes). | `carGeometry` in `society3d.js` |
+| Trees | Irregular crowns instead of perfect balls; soft shadow under each. | `shaded` in `society3d.js` |
+| Weak devices | On phones and PCs with 4 cores or fewer the repeat-hiding shader and the tree shadows are off. | `createMaterials({ lite })` |
+
+Cost, measured in headless Chrome with software rendering (same view): 4.30 million triangles before, 4.70 million after (+9%); a frame took 5.6 s before and 6.7 to 7.4 s after (software rendering only; on a graphics card these shaders are cheap). Model audit (`?audit=1`): 124 sites, no part outside its site. No page errors by day, evening or night.
+
+Still open:
+
+1. Ready-made glTF models for the large buildings (mosque, school, hospital, shops) and trees with leaf textures. The procedural models are kept because they fit each real site and merge into few draw calls; glTF models would have to be fitted the same way.
+2. A real ambient-occlusion pass (N8AO or GTAO) for high-end PCs; needs testing with the logarithmic depth buffer the map uses.
+3. Distance haze and a sky-based light probe.
+4. Plot detail: corner markers, plot number on the ground when zoomed in.
+5. Better water for the nalla and park lakes.
+6. People, running fountains.
+7. A cinematic opening camera move and icon labels.
+8. Level of detail for houses and trees, so the extra graphics stay fast on weak devices.
 
 Models must stay labelled illustrative. Plots must stay land parcels.
 

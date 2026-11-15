@@ -18,7 +18,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createMaterials, makeKit, buildLandmark, buildGate, buildHouse, rng } from './models3d.js?v=20261115d';
+import { createMaterials, makeKit, buildLandmark, buildGate, buildHouse, rng, metreUV } from './models3d.js?v=20261116a';
 
 const PI = Math.PI;
 const LAT_REF = 31.525, KX = 111320 * Math.cos(LAT_REF * PI / 180), KY = 111320;
@@ -51,7 +51,7 @@ export function Society3D(el, opts = {}) {
   const lowEnd = /Mobi|Android/i.test(navigator.userAgent) || (navigator.hardwareConcurrency || 8) <= 4;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lowEnd ? 1.25 : 1.75));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;      // 17-tap filter whose width is set by sun.shadow.radius (soft edges)
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.domElement.className = 's3d-canvas';
@@ -68,7 +68,7 @@ export function Society3D(el, opts = {}) {
   Object.assign(controls, { enableDamping: true, dampingFactor: .085, screenSpacePanning: false, maxPolarAngle: 1.43, minDistance: 18, maxDistance: 9000, zoomToCursor: true, zoomSpeed: 1.2 });
   api.viewer = { renderer, scene, camera, controls };
 
-  const M = createMaterials();
+  const M = createMaterials({ lite: lowEnd });         // weak devices: no shader that hides texture repeats
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
   scene.environmentIntensity = .45;
@@ -79,6 +79,8 @@ export function Society3D(el, opts = {}) {
   sun.castShadow = true;
   sun.shadow.mapSize.set(lowEnd ? 2048 : 4096, lowEnd ? 2048 : 4096);
   sun.shadow.bias = -.0004; sun.shadow.normalBias = .5;
+  sun.shadow.radius = lowEnd ? 1.6 : 2.4;            // soft shadow edges
+  sun.shadow.intensity = .86;                        // sky light still reaches the shaded ground
   const SUN_DAY = new THREE.Vector3(-.5, .74, .45).normalize(), SUN_EVE = new THREE.Vector3(-.86, .2, .28).normalize();
   const SUN_DIR = SUN_DAY.clone();
   scene.add(hemi, sun, sun.target);
@@ -201,7 +203,7 @@ export function Society3D(el, opts = {}) {
       else for (const h of holes) if (pipPlan(x, z, h) && edgeDistPlan(x, z, h) > 1.0) { out++; inHole++; maxd = Math.max(maxd, edgeDistPlan(x, z, h)); break; }
     };
     group.traverse(o => {
-      if (!o.isMesh) return; o.updateMatrix();
+      if (!o.isMesh || o.material === M.ao) return; o.updateMatrix();
       const pa = o.geometry.attributes.position, step = Math.max(1, Math.floor(pa.count / 300));
       for (let i = 0; i < pa.count; i += step) { v.fromBufferAttribute(pa, i).applyMatrix4(o.matrix); test(v.x, v.z); }
     });
@@ -219,6 +221,7 @@ export function Society3D(el, opts = {}) {
   // ---- build ---------------------------------------------------------------------
   async function build() {
     status('loading', 'Loading map data…');
+    const photosReady = Promise.race([M.ready, new Promise(r => setTimeout(r, 6000))]);
     const get = n => fetch(opts.dataUrl + n + '.geojson', { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(n + '.geojson: HTTP ' + r.status); return r.json(); });
     const optional = ['water', 'context', 'buildings'];
     const [boundary, roads, surface, outer, land, landmarks, plots, water, context, buildings] = await Promise.all(['boundary', 'roads', 'road_surface', 'outer_roads', 'blocks', 'landmarks', 'plots', 'water', 'context', 'buildings'].map(n => get(n).catch(e => { if (optional.includes(n)) return { features: [] }; throw e; })));
@@ -230,6 +233,7 @@ export function Society3D(el, opts = {}) {
     boundaryPlan = ringPlan(boundary.features[0].geometry.coordinates[0]);
     if (bp.blocks) { blockCentres = {}; for (const b in bp.blocks) blockCentres[b] = P(...bp.blocks[b]); }
 
+    await photosReady;
     status('loading', 'Building ground, roads and parcels…'); await tick();
     const isLandF = f => f.properties.layer === 'land';
     // countryside
@@ -476,7 +480,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         if (o.userData.keep || Array.isArray(o.material)) { keep.push(o); o.userData.lm = id; return; }
         let geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
         geo.applyMatrix4(o.matrixWorld);
-        for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geo.deleteAttribute(name);
+        for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name) && !(name === 'color' && o.material === M.ao)) geo.deleteAttribute(name);
         if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
         const ids = new Float32Array(geo.attributes.position.count).fill(id);
         geo.setAttribute('lmid', new THREE.BufferAttribute(ids, 1));
@@ -488,9 +492,9 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     for (const [mat, list] of buckets) {
       const merged = mergeGeometries(list);
       const mesh = new THREE.Mesh(merged, mat);
-      const shadowless = mat === M.water || mat === M.flowers;
+      const shadowless = mat === M.water || mat === M.flowers || mat === M.ao;
       mesh.castShadow = !shadowless; mesh.receiveShadow = true; mesh.userData.landmarks = true;
-      scene.add(mesh); pickables.push(mesh);
+      scene.add(mesh); if (mat !== M.ao) pickables.push(mesh);
     }
   }
 
@@ -543,7 +547,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       plotItems.push(it); api.plots.push(p); byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase().replace(/\s+/g, ''), p.id);
     });
     plotGeom = padGeometry(plotItems, Y.plotBase, Y.plotTop);
-    plotMesh = new THREE.Mesh(plotGeom, new THREE.MeshStandardMaterial({ vertexColors: true, map: M.plotMap, roughness: .88, metalness: 0 }));
+    plotMesh = new THREE.Mesh(plotGeom, M.plot);
     plotMesh.castShadow = true; plotMesh.receiveShadow = true; plotMesh.userData.plots = true;
     scene.add(plotMesh); pickables.push(plotMesh);
     recolor();
@@ -596,24 +600,47 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     api.buildings = features.length;
     if (!features.length) return;
     const groups = [];
+    // the side of a house that faces its street: the nearest asphalt straight out of one of its four sides (16 m)
+    const streetTurn = (cx, cn, a, L, W) => {
+      const c = Math.cos(a), s = Math.sin(a); let best = null;
+      for (const [de, dn, half, turn] of [[c, s, L / 2, 0], [-c, -s, L / 2, PI], [s, -c, W / 2, -PI / 2], [-s, c, W / 2, PI / 2]])
+        for (let d = half + 1; d <= half + 16; d += 1.5) if (onAsphalt(cx + de * d, cn + dn * d)) { if (!best || d - half < best[0]) best = [d - half, turn]; break; }
+      return best ? best[1] : null;
+    };
+    let facing = 0;
     for (const f of features) {
-      const p = f.properties, o = p.obb, [cx, cn] = P(o.lon, o.lat), a = o.angle * PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+      const p = f.properties, o = p.obb, [cx, cn] = P(o.lon, o.lat);
+      let a = o.angle * PI / 180, L = o.length, W = o.width;
+      const turn = streetTurn(cx, cn, a, L, W);            // turn the house so that its front (+X) faces the street
+      if (turn !== null) { facing++; a += turn; if (Math.abs(turn) === PI / 2) [L, W] = [W, L]; }
+      const ca = Math.cos(a), sa = Math.sin(a);
       const g = new THREE.Group(); g.position.set(cx, Y.plotTop, -cn); g.rotation.y = a; scene.add(g); g.updateMatrixWorld(true);
       const local = ringPlan(f.geometry.coordinates[0]).map(([e, n]) => { const de = e - cx, dn = n - cn; return [de * ca + dn * sa, de * sa - dn * ca]; });
-      buildHouse(makeKit(g, M, local, hooks), o.length, o.width, p);
+      buildHouse(makeKit(g, M, local, hooks), L, W, p);
       const plot = p.plot_id != null ? byId.get(p.plot_id) : null;
       g.userData.pi = plot ? plot._i : -1; groups.push(g);
     }
-    // boundary walls of built plots, with a gate in the middle of one short side
+    api.housesFacingStreet = facing;
+    // boundary walls of built plots, with the gate in the middle of the side that faces the street
+    // (or of the shortest side when no street is found within 12 m)
     const wg = new THREE.Group(); scene.add(wg); wg.userData.pi = -1; groups.push(wg);
     const wallParts = [], gateParts = [];
+    const streetEdge = r => {
+      const ccw = area2(r) > 0; let bi = -1, bd = Infinity;
+      for (let i = 0; i < r.length; i++) {
+        const a = r[i], b = r[(i + 1) % r.length], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy); if (l < 6) continue;
+        const nx = (ccw ? dy : -dy) / l, ny = (ccw ? -dx : dx) / l, mx = a[0] + dx / 2, my = a[1] + dy / 2;
+        for (let d = .8; d <= 12; d += 1.2) if (onAsphalt(mx + nx * d, my + ny * d)) { if (d < bd) { bd = d; bi = i; } break; }
+      }
+      return bi;
+    };
     for (const p of api.plots) {
       if (!p.built) continue;
-      const r = p._ring, n = r.length; let gi = 0, gl = Infinity;
-      for (let i = 0; i < n; i++) { const a = r[i], b = r[(i + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > 5 && l < gl) { gl = l; gi = i; } }
+      const r = p._ring, n = r.length; let gi = streetEdge(r), gl = Infinity;
+      if (gi < 0) for (let i = 0; i < n; i++) { const a = r[i], b = r[(i + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > 5 && l < gl) { gl = l; gi = i; } }
       for (let i = 0; i < n; i++) {
         const a = r[i], b = r[(i + 1) % n], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy); if (l < .6) continue;
-        const ry = Math.atan2(dy, dx), seg = (t0, t1, list, h, t) => { const g = new THREE.BoxGeometry((t1 - t0) * l, h, t).translate(0, h / 2, 0); g.rotateY(ry); g.translate(a[0] + dx * (t0 + t1) / 2, Y.plotTop, -(a[1] + dy * (t0 + t1) / 2)); const ids = new Float32Array(g.attributes.position.count).fill(p._i); g.setAttribute('pid', new THREE.BufferAttribute(ids, 1)); list.push(g.toNonIndexed()); };
+        const ry = Math.atan2(dy, dx), seg = (t0, t1, list, h, t) => { const g = metreUV(new THREE.BoxGeometry((t1 - t0) * l, h, t), (t1 - t0) * l, h, t).translate(0, h / 2, 0); g.rotateY(ry); g.translate(a[0] + dx * (t0 + t1) / 2, Y.plotTop, -(a[1] + dy * (t0 + t1) / 2)); const ids = new Float32Array(g.attributes.position.count).fill(p._i); g.setAttribute('pid', new THREE.BufferAttribute(ids, 1)); list.push(g.toNonIndexed()); };
         if (i === gi && l > 6) { const gw = 3.4 / l; seg(0, .5 - gw / 2, wallParts, 1.7, .22); seg(.5 + gw / 2, 1, wallParts, 1.7, .22); seg(.5 - gw / 2, .5 + gw / 2, gateParts, 1.9, .1); }
         else seg(0, 1, wallParts, 1.7, .22);
       }
@@ -625,17 +652,18 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       g.traverse(o => {
         if (!o.isMesh) return;
         const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); geo.applyMatrix4(o.matrixWorld);
-        for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geo.deleteAttribute(name);
+        const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+        for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name) && !(name === 'color' && mat === M.ao)) geo.deleteAttribute(name);
         geo.setAttribute('pid', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(g.userData.pi), 1));
-        push(Array.isArray(o.material) ? o.material[0] : o.material, geo);
+        push(mat, geo);
       });
       scene.remove(g);
     }
-    for (const g of wallParts) push(M.cream, g);
-    for (const g of gateParts) push(M.darkSteel, g);
+    for (const g of wallParts) push(M.plaster, g);
+    for (const g of gateParts) push(M.gate, g);
     for (const [mat, list] of buckets) {
-      const mesh = new THREE.Mesh(mergeGeometries(list), mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.userData.plots = true; mesh.userData.houses = true;
-      scene.add(mesh); pickables.push(mesh);
+      const mesh = new THREE.Mesh(mergeGeometries(list), mat); mesh.castShadow = mat !== M.ao; mesh.receiveShadow = true; mesh.userData.plots = true; mesh.userData.houses = true;
+      scene.add(mesh); if (mat !== M.ao) pickables.push(mesh);
     }
   }
 
@@ -646,8 +674,13 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g;
   }
   // crowns are smooth blobs shaded darker underneath; trunks are plain
-  function shaded(geom, top, bottom) {
-    let g = geom.clone(); g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g, 1e-3); g.computeVertexNormals(); g = g.toNonIndexed();
+  function shaded(geom, top, bottom, lump = .13) {
+    let g = geom.clone(); g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g, 1e-3);
+    if (lump) {                                     // irregular, leafy outline instead of a perfect ball
+      g.computeBoundingSphere(); const c = g.boundingSphere.center, pa = g.attributes.position, rr = rng(pa.count * 31 + 7);
+      for (let i = 0; i < pa.count; i++) { const f = 1 + (rr() - .5) * lump; pa.setXYZ(i, c.x + (pa.getX(i) - c.x) * f, c.y + (pa.getY(i) - c.y) * f, c.z + (pa.getZ(i) - c.z) * f); }
+    }
+    g.computeVertexNormals(); g = g.toNonIndexed();
     g.computeBoundingBox(); const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y, a = new THREE.Color(top), b = new THREE.Color(bottom), c = new THREE.Color();
     const p = g.attributes.position, col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) { const t = (p.getY(i) - y0) / (y1 - y0 || 1); c.copy(b).lerp(a, Math.pow(t, .8)); col.set([c.r, c.g, c.b], i * 3); }
@@ -680,6 +713,15 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       list.forEach((t, i) => { const sc = t[3] * (.85 + r() * .3); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 2 * PI); im.setMatrixAt(i, m4.compose(p.set(t[0], t[1], t[2]), q, s.set(sc, sc * (.9 + r() * .25), sc))); im.setColorAt(i, c.setHSL(.24 + r() * .1, .25, .78 + r() * .2)); });
       im.castShadow = true; im.receiveShadow = true; scene.add(im);
     }
+    // a soft round shadow on the ground under every tree (the sun's shadow falls to one side; this grounds the trunk)
+    const R = { round: 3.0, cone: 1.7, palm: 2.0 }, under = [];
+    for (const type of Object.keys(trees)) for (const t of trees[type]) under.push([t, R[type]]);
+    if (under.length && !lowEnd) {
+      const bg = new THREE.CircleGeometry(1, 18); bg.rotateX(-PI / 2);
+      const bm = new THREE.InstancedMesh(bg, M.blob, under.length);
+      under.forEach(([t, rad], i) => bm.setMatrixAt(i, m4.compose(p.set(t[0], t[1] + .035, t[2]), q.identity(), s.setScalar(rad * t[3]))));
+      bm.renderOrder = 1; scene.add(bm);
+    }
     // lamps
     const poleGeo = mergeGeometries([new THREE.CylinderGeometry(.08, .14, 9, 6).translate(0, 4.5, 0), new THREE.BoxGeometry(2.2, .12, .12).translate(1.05, 8.9, 0)]);
     const headGeo = new THREE.BoxGeometry(.85, .2, .38).translate(2.05, 8.78, 0);
@@ -699,12 +741,24 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     }
   }
   const CAR_COLORS = ['#f2f2f2', '#c7c9cc', '#1e1e20', '#a3262a', '#2a4f8f', '#f2f2f2', '#6b6f75', '#d9c39a', '#ffffff'];
+  // a small sedan, the commonest car in Pakistan: body from its side profile (rounded edges), glass, wheels with
+  // rims, lights. Vertex colours: white parts take the instance colour (the paint), dark parts stay dark.
   function carGeometry() {
-    return mergeGeometries([
-      colored(new THREE.BoxGeometry(4.3, .8, 1.8).translate(0, .62, 0), '#ffffff'),
-      colored(new THREE.BoxGeometry(2.3, .65, 1.62).translate(-.25, 1.33, 0), '#26313a'),
-      ...[[-1.35, .9], [1.35, .9], [-1.35, -.9], [1.35, -.9]].map(([x, z]) => colored(new THREE.CylinderGeometry(.34, .34, .25, 10).rotateX(PI / 2).translate(x, .34, z), '#151515'))
-    ]);
+    const side = (pts, depth, bevel) => {
+      const sh = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
+      const g = new THREE.ExtrudeGeometry(sh, { depth: depth - 2 * bevel, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 1 });
+      g.translate(0, 0, -(depth - 2 * bevel) / 2); g.deleteAttribute('uv'); return g;
+    };
+    const body = side([[-2.18, .3], [2.18, .3], [2.2, .62], [2.05, .8], [1.05, .9], [.42, 1.36], [-.95, 1.38], [-1.62, .94], [-2.15, .9], [-2.22, .6]], 1.72, .08);
+    const glass = side([[1.06, 1.01], [.49, 1.41], [-.98, 1.43], [-1.6, 1.03]], 1.74, 0);   // a little outside the body's bevel so the windscreens show
+    const parts = [colored(body, '#ffffff'), colored(glass, '#1d252c')];
+    parts.push(colored(new THREE.BoxGeometry(.06, .12, 1.4).translate(2.24, .55, 0), '#e9e4d2'));      // grille and lamps
+    parts.push(colored(new THREE.BoxGeometry(.06, .14, 1.5).translate(-2.25, .7, 0), '#7a1414'));
+    for (const [x, z] of [[-1.36, .78], [1.32, .78], [-1.36, -.78], [1.32, -.78]]) {
+      parts.push(colored(new THREE.CylinderGeometry(.33, .33, .24, 12).rotateX(PI / 2).translate(x, .33, z), '#141414'));
+      parts.push(colored(new THREE.CylinderGeometry(.19, .19, .26, 8).rotateX(PI / 2).translate(x, .33, z), '#9ea3a8'));
+    }
+    return mergeGeometries(parts.map(g => { const n = g.index ? g.toNonIndexed() : g; if (n.attributes.uv) n.deleteAttribute('uv'); return n; }));
   }
   function buildCars(features) {
     const paths = [];
