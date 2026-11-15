@@ -40,7 +40,7 @@
 <div class="card" id="side"></div></div>
 <div class="note"><b>Data sources.</b> Blocks A to F, plot sizes, parks, mosques, schools and all named sites: the official FDA City plan and block maps, aligned to satellite imagery at the roundabouts. Street centrelines: OpenStreetMap. Road widths, roundabouts and the Barani Nala: measured on satellite imagery. Positions are marked <em>approximate</em>. Plot outlines: read from the official block maps and registered to the real streets where the print is clear; elsewhere the street block is split into plots of the official size (each plot says which). Houses, built / vacant and the development class: building footprints detected on satellite imagery (Google Open Buildings, Microsoft, via Overture Maps). Plot numbers, plot status and storeys are sample values. Buildings are illustrative 3D models.</div></div>
 <script type="module">
-import { Society3D } from './assets/society3d.js?v=20261115d';
+import { Society3D } from './assets/society3d.js?v=20261116a';
 const LG={real:[['#b3a079','Plot (vacant land)'],['#e6d8bd','House (built today)'],['#3f8f3f','Park'],['#3a3b3e','Road'],['#3c8fba','Nalla']],size:[['#8fd16a','5 Marla'],['#ee8fb8','10 Marla'],['#7fa6e6','20 Marla'],['#f0a040','Commercial']],cls:[['#3fae5f','High'],['#e0a93a','Medium'],['#c9573f','Low']],stat:[['#34c38f','Available'],['#e0a93a','Reserved'],['#c9573f','Sold'],['#9aa5a0','Unknown']],sat:[['#9c8a72','Built'],['#ddd2b2','Vacant']]};
 const $=id=>document.getElementById(id),side=$('side'),st=$('st'),tip=$('tip'),L=$('lg');
 let layer='real',view='model',model=null,earth=null;

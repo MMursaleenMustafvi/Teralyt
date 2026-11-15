@@ -37,20 +37,141 @@ function speckle(g, w, h, cols, n, seed, smin = 1, smax = 3, amin = .2, amax = .
 }
 const groundTex = (base, cols, n, seed, extra) => tex(cv(256, 256, (g, w, h) => { g.fillStyle = base; g.fillRect(0, 0, w, h); speckle(g, w, h, cols, n, seed); if (extra) extra(g, w, h); }));
 
+// ---------------------------------------------------------------------------
+// photo textures: assets/tex/*.jpg are CC0 photographs from ambientCG (512 px, tileable; see assets/tex/README.md).
+// A material starts with its drawn (canvas) texture and switches to the photo once it has loaded. The photo is
+// tinted so that its average colour equals the drawn colour, so the map keeps its palette. If the files cannot be
+// loaded (offline, blocked), the drawn textures simply stay.
+// ---------------------------------------------------------------------------
+const TEX_URL = new URL('./tex/', import.meta.url).href;
+const photos = {};
+export function photo(name) {
+  return photos[name] || (photos[name] = new Promise((res, rej) => {
+    const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('texture ' + name + ' not loaded')); im.src = TEX_URL + name + '.jpg';
+  }));
+}
+const toLin = c => c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4);
+function photoMean(im, linear = true) {         // average colour of a photo (linear light by default)
+  const S = 32, d = cv(S, S, g => g.drawImage(im, 0, 0, S, S)).getContext('2d').getImageData(0, 0, S, S).data, m = [0, 0, 0];
+  for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) m[j] += linear ? toLin(d[i + j] / 255) : d[i + j] / 255;
+  return m.map(v => v / (d.length / 4));
+}
+// swap a material's map for a photo; `target` is the average colour it should have, `size` the tile size in metres
+function usePhoto(mat, name, target, { size = 0, repeat = 0, smooth = true, lite = false } = {}) {
+  if (smooth && !lite) antiTile(mat);
+  return photo(name).then(im => {
+    const t = new THREE.Texture(im); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+    if (size) t.repeat.set(1 / size, 1 / size); else if (repeat) t.repeat.set(repeat, repeat); else if (mat.map) t.repeat.copy(mat.map.repeat);
+    t.needsUpdate = true;
+    const m = photoMean(im), c = new THREE.Color(target);
+    mat.color.setRGB(c.r / m[0], c.g / m[1], c.b / m[2]);
+    if (mat.map) mat.map.dispose();
+    mat.map = t; mat.needsUpdate = true;
+  }).catch(() => {});
+}
+// large areas: hide the repeat of a small photo by blending it with a rotated, rescaled copy of itself in patches
+// and adding slow brightness changes (both from a value noise in texture space)
+const NOISE_GLSL = 'float tHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n' +
+  'float tNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f); return mix(mix(tHash(i), tHash(i + vec2(1., 0.)), f.x), mix(tHash(i + vec2(0., 1.)), tHash(i + vec2(1., 1.)), f.x), f.y); }\n';
+function antiTile(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + NOISE_GLSL).replace('#include <map_fragment>', `
+#ifdef USE_MAP
+  vec2 tUv = vMapUv;
+  vec4 tA = texture2D(map, tUv);
+  vec4 tB = texture2D(map, mat2(.8, -.6, .6, .8) * tUv * 1.37 + vec2(.37, .71));
+  vec4 sampledDiffuseColor = mix(tA, tB, smoothstep(.38, .62, tNoise(tUv * .19)));
+  sampledDiffuseColor.rgb *= .88 + .24 * tNoise(tUv * .047 + 3.7);
+  diffuseColor *= sampledDiffuseColor;
+#endif`);
+  };
+}
+// walls: a little darker near the ground (the light a wall gets is partly blocked by the ground and the walls
+// round it). A cheap stand-in for ambient occlusion, by world height.
+function groundShade(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vGroundY;').replace('#include <project_vertex>', '#include <project_vertex>\nvGroundY = (modelMatrix * vec4(transformed, 1.)).y;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vGroundY;').replace('#include <aomap_fragment>', '#include <aomap_fragment>\n' +
+      'float gShade = mix(.6, 1., smoothstep(.3, 2.1, vGroundY));\nreflectedLight.indirectDiffuse *= gShade; reflectedLight.directDiffuse *= mix(1., gShade, .5);');
+  };
+  return mat;
+}
+// a wall face covered by a photo tinted to `hex` (canvas drawing, used for facades)
+function photoWall(g, w, h, im, hex, tile) {
+  const p = cv(tile, tile, gg => gg.drawImage(im, 0, 0, tile, tile));
+  g.fillStyle = g.createPattern(p, 'repeat'); g.fillRect(0, 0, w, h);
+  const d = g.getImageData(0, 0, w, h), a = d.data, m = photoMean(im, false), c = new THREE.Color(hex), t = [c.r, c.g, c.b];
+  // THREE.Color holds linear values; the canvas is sRGB
+  const srgb = v => v <= .0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - .055, k = t.map((v, j) => srgb(v) / m[j]);
+  for (let i = 0; i < a.length; i += 4) for (let j = 0; j < 3; j++) a[i + j] = Math.min(255, a[i + j] * k[j]);
+  g.putImageData(d, 0, 0);
+}
+// metre uvs on a box (w x h x d), so a material whose map repeats per metre shows at real size
+export function metreUV(g, w, h, d) {
+  const uv = g.attributes.uv, spans = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let i = 0; i < 4; i++) { const k = f * 4 + i; uv.setXY(k, uv.getX(k) * spans[f][0], uv.getY(k) * spans[f][1]); }
+  return g;
+}
+// soft dark band on the ground round a w x d footprint (centred on the origin), fading out over `spread` metres:
+// the contact shadow a building casts on the ground under open sky
+export function aoSkirt(w, d, spread = 1.2, dark = .45) {
+  const hw = w / 2, hd = d / 2, rings = [[0, dark], [spread * .35, dark * .35], [spread, 0]];
+  const ring = o => [[-hw - o, -hd - o], [hw + o, -hd - o], [hw + o, hd + o], [-hw - o, hd + o]];
+  const pos = [], col = [];
+  for (let r = 0; r < 2; r++) {
+    const A = ring(rings[r][0]), B = ring(rings[r + 1][0]), aa = rings[r][1], ab = rings[r + 1][1];
+    for (let i = 0; i < 4; i++) {
+      const j = (i + 1) % 4;
+      for (const [p, al] of [[A[i], aa], [B[i], ab], [B[j], ab], [A[i], aa], [B[j], ab], [A[j], aa]]) { pos.push(p[0], 0, p[1]); col.push(0, 0, 0, al); }
+    }
+  }
+  const g = new THREE.BufferGeometry(), n = pos.length / 3;
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(n).fill([0, 1, 0]).flat(), 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+  return g;
+}
+function solarTex() {
+  return tex(cv(64, 112, (g, w, h) => {
+    g.fillStyle = '#c9ccd0'; g.fillRect(0, 0, w, h);                       // aluminium frame
+    g.fillStyle = '#1b2a4a'; g.fillRect(3, 3, w - 6, h - 6);
+    g.strokeStyle = 'rgba(160,180,215,.55)'; g.lineWidth = 1;
+    for (let x = 3; x <= w - 3; x += (w - 6) / 6) { g.beginPath(); g.moveTo(x, 3); g.lineTo(x, h - 3); g.stroke(); }
+    for (let y = 3; y <= h - 3; y += (h - 6) / 10) { g.beginPath(); g.moveTo(3, y); g.lineTo(w - 3, y); g.stroke(); }
+    const s = g.createLinearGradient(0, 0, w, h); s.addColorStop(0, 'rgba(255,255,255,.16)'); s.addColorStop(.5, 'rgba(255,255,255,0)'); g.fillStyle = s; g.fillRect(3, 3, w - 6, h - 6);
+  }));
+}
+function railTex() {
+  // steel railing seen from the side: top and bottom rail, bars every 12 cm; transparent between (alpha test)
+  return tex(cv(64, 64, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, w, 6); g.fillRect(0, h - 8, w, 5);
+    for (let x = 2; x < w; x += 8) g.fillRect(x, 0, 2, h);
+  }));
+}
+
 function facadeTex(o) {
   // 4 bays x 4 floors on a 512 px tile; returns colour map + night (emissive) map
   const r = rng(o.seed || 7);
   const lit = [];
   for (let i = 0; i < 16; i++) lit.push(r() < (o.lit == null ? .45 : o.lit));
-  const draw = (night) => (g, w, h) => {
+  const draw = (night, im) => (g, w, h) => {
     g.fillStyle = night ? '#000' : o.wall; g.fillRect(0, 0, w, h);
-    if (!night && o.wallNoise) speckle(g, w, h, o.wallNoise, 3000, 3, 1, 2, .15, .3);
+    if (!night && im) photoWall(g, w, h, im, o.wall, o.photo === 'brick' ? 80 : 160);
+    else if (!night && o.wallNoise) speckle(g, w, h, o.wallNoise, 3000, 3, 1, 2, .15, .3);
     for (let fy = 0; fy < 4; fy++) for (let bx = 0; bx < 4; bx++) {
       const x0 = bx * 128, y0 = fy * 128;
       if (!night && o.band) { g.fillStyle = o.band; g.fillRect(x0, y0 + 118, 128, 10); }
       const wx = x0 + (o.wide ? 10 : 30), ww = o.wide ? 108 : 68, wy = y0 + 26, wh = o.tall ? 88 : 64;
       const on = lit[fy * 4 + bx];
       if (night) { if (on) { g.fillStyle = r() < .8 ? '#ffd28a' : '#cfe4ff'; g.fillRect(wx + 3, wy + 3, ww - 6, wh - 6); } continue; }
+      if (o.shade) {                                                  // sunshade (chajja) over the window and its shadow
+        const sg = g.createLinearGradient(0, wy - 6, 0, wy + 22); sg.addColorStop(0, 'rgba(0,0,0,.38)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = sg; g.fillRect(wx - 12, wy - 6, ww + 24, 28);
+        g.fillStyle = o.shade; g.fillRect(wx - 14, wy - 14, ww + 28, 8);
+        g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(wx - 14, wy - 6, ww + 28, 2);
+      }
       g.fillStyle = o.frame || '#f4f1ea';
       if (o.arch) { g.beginPath(); g.moveTo(wx - 4, wy + wh + 4); g.lineTo(wx - 4, wy + 26); g.arc(wx + ww / 2, wy + 26, ww / 2 + 4, PI, 0); g.lineTo(wx + ww + 4, wy + wh + 4); g.fill(); }
       else g.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
@@ -62,7 +183,10 @@ function facadeTex(o) {
       if (o.sill) { g.fillStyle = o.sill; g.fillRect(wx - 8, wy + wh + 4, ww + 16, 6); }
     }
   };
-  return { map: tex(cv(512, 512, draw(false))), emi: tex(cv(512, 512, draw(true))) };
+  const map = tex(cv(512, 512, draw(false))), emi = tex(cv(512, 512, draw(true)));
+  // redraw the walls with the photo once it has loaded (windows stay drawn)
+  const ready = o.photo ? photo(o.photo).then(im => { draw(false, im)(map.image.getContext('2d'), 512, 512); map.needsUpdate = true; }).catch(() => {}) : Promise.resolve();
+  return { map, emi, ready };
 }
 
 function footballTex() {
@@ -158,11 +282,11 @@ function waterNormals() {
 // ---------------------------------------------------------------------------
 // materials
 // ---------------------------------------------------------------------------
-export function createMaterials() {
+export function createMaterials({ lite = false } = {}) {
   const S = (color, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color, roughness: .85, metalness: 0 }, o));
   const T = (map, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ map, roughness: .9, metalness: 0 }, o));
-  const night = [];
-  const facade = (o, extra = {}) => { const t = facadeTex(o); const m = new THREE.MeshStandardMaterial(Object.assign({ map: t.map, roughness: .8, emissive: new THREE.Color('#ffffff'), emissiveMap: t.emi, emissiveIntensity: 0 }, extra)); night.push(m); return m; };
+  const night = [], loads = [];
+  const facade = (o, extra = {}) => { const t = facadeTex(o); loads.push(t.ready); const m = new THREE.MeshStandardMaterial(Object.assign({ map: t.map, roughness: .8, emissive: new THREE.Color('#ffffff'), emissiveMap: t.emi, emissiveIntensity: 0 }, extra)); night.push(groundShade(m)); return m; };
   const metres = (t, size) => { t.repeat.set(1 / size, 1 / size); return t; }; // for meshes whose uv is in metres
   const M = {
     // ground (uv in metres)
@@ -201,17 +325,50 @@ export function createMaterials() {
     parking: T(parkingTex()), helipad: T(helipadTex()), seats: T(seatsTex(), { side: THREE.DoubleSide }),
     clock: new THREE.MeshStandardMaterial({ map: clockTex(), emissive: new THREE.Color('#fff2cc'), emissiveIntensity: 0 }),
     flag: new THREE.MeshStandardMaterial({ map: flagTex(), side: THREE.DoubleSide, roughness: .9 }),
-    // facades (uv in units of 4 bays x 4 floors)
-    facCream: facade({ wall: '#e6d8bd', wallNoise: ['#d8c9ad', '#efe3cb'], sill: '#cdbb98', seed: 1 }),
-    facBrick: facade({ wall: '#a8553b', wallNoise: ['#93472f', '#b8634a', '#7f3d29'], frame: '#efe9dc', band: '#e8dfcc', seed: 2 }),
-    facWhite: facade({ wall: '#f1efe9', wallNoise: ['#e2dfd7'], frame: '#dfe6ea', glass: '#2d6aa0', glass2: '#6aa8d6', band: '#d2d8dc', seed: 3, lit: .6 }),
+    // facades (uv in units of 4 bays x 4 floors); walls are photographed plaster or brick, tinted
+    facCream: facade({ wall: '#e6d8bd', wallNoise: ['#d8c9ad', '#efe3cb'], photo: 'plaster', sill: '#cdbb98', shade: '#efe6d4', seed: 1 }),
+    facBrick: facade({ wall: '#b0603f', wallNoise: ['#93472f', '#b8634a', '#7f3d29'], photo: 'brick', frame: '#efe9dc', band: '#e8dfcc', seed: 2 }),
+    facWhite: facade({ wall: '#f1efe9', wallNoise: ['#e2dfd7'], photo: 'plaster', frame: '#dfe6ea', glass: '#2d6aa0', glass2: '#6aa8d6', band: '#d2d8dc', seed: 3, lit: .6 }),
     facGlass: facade({ wall: '#46677a', frame: '#9fb4c0', glass: '#2b4d63', glass2: '#7fb0cc', wide: true, tall: true, seed: 4, lit: .55 }, { metalness: .35, roughness: .2 }),
-    facSand: facade({ wall: '#d9bd8f', wallNoise: ['#c8aa7b', '#e6cc9f'], frame: '#efe2c4', arch: true, sill: '#bfa274', seed: 5 }),
-    facMosque: facade({ wall: '#f4f2ec', wallNoise: ['#e7e4dc'], frame: '#d9c48a', glass: '#2a5d4a', glass2: '#4f8f74', arch: true, tall: true, seed: 6, lit: .7 }),
+    facSand: facade({ wall: '#d9bd8f', wallNoise: ['#c8aa7b', '#e6cc9f'], photo: 'plaster', frame: '#efe2c4', arch: true, sill: '#bfa274', seed: 5 }),
+    facMosque: facade({ wall: '#f4f2ec', wallNoise: ['#e7e4dc'], photo: 'plaster', frame: '#d9c48a', glass: '#2a5d4a', glass2: '#4f8f74', arch: true, tall: true, seed: 6, lit: .7 }),
     facShop: facade({ wall: '#ece6da', frame: '#c8c2b6', glass: '#2d4250', glass2: '#7fa0b4', wide: true, tall: true, seed: 8, lit: .85 }),
-    facPink: facade({ wall: '#e6c3b4', wallNoise: ['#d8b2a2'], frame: '#f7efe8', seed: 9 }),
+    facPink: facade({ wall: '#e6c3b4', wallNoise: ['#d8b2a2'], photo: 'plaster', frame: '#f7efe8', shade: '#f4e8df', seed: 9 }),
+    // house fronts as built in Faisalabad today: plastered walls, dark aluminium window frames, sunshades
+    facGrey: facade({ wall: '#d9d8d3', photo: 'plaster', frame: '#2e3134', glass: '#26333d', glass2: '#6d8597', shade: '#ecebe7', seed: 11, lit: .5 }),
+    facBeige: facade({ wall: '#e4d3b8', photo: 'plaster', frame: '#5a4232', glass: '#2c3a44', glass2: '#7e95a6', shade: '#f1e6d2', sill: '#cbb99c', seed: 12, lit: .5 }),
+    facOff: facade({ wall: '#f0ece3', photo: 'plaster', frame: '#3a3a3a', glass: '#2a3946', glass2: '#7894a8', shade: '#d5d0c6', seed: 13, lit: .5 }),
+    // building parts with photo surfaces (uv in metres)
+    plaster: groundShade(S('#e3d8c3')), roof: S('#a39e95', { roughness: .95 }), slab: groundShade(S('#d8d3c9')),
+    plinth: groundShade(S('#77736b')), cladStone: groundShade(S('#9b8f80')), cladBrick: groundShade(S('#a35f42')), cladDark: groundShade(S('#4a4643', { roughness: .6 })),
+    solar: new THREE.MeshStandardMaterial({ map: solarTex(), roughness: .25, metalness: .45 }),
+    // painted steel house gate (uv in metres): vertical ribs, a rail near the top
+    gate: new THREE.MeshStandardMaterial({ map: tex(cv(64, 64, (g, w, h) => { g.fillStyle = '#3f3b37'; g.fillRect(0, 0, w, h); for (let x = 0; x < w; x += 8) { g.fillStyle = '#56504a'; g.fillRect(x, 0, 3, h); g.fillStyle = '#2a2724'; g.fillRect(x + 3, 0, 1, h); } g.fillStyle = '#6a625a'; g.fillRect(0, 10, w, 3); })), metalness: .35, roughness: .55 }),
+    railing: new THREE.MeshStandardMaterial({ map: railTex(), color: '#2f3236', alphaTest: .5, side: THREE.DoubleSide, metalness: .5, roughness: .45 }),
+    // contact shadow on the ground round buildings (vertex alpha, see aoSkirt)
+    ao: new THREE.MeshBasicMaterial({ color: '#000000', vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }),
+    blob: null,
   };
   M.night = night.concat([M.lampOn, M.clock]);
+  M.plot = new THREE.MeshStandardMaterial({ vertexColors: true, map: M.plotMap, roughness: .88, metalness: 0 });
+  // round soft shadow (alpha map) for the ground under trees
+  M.blob = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: .34, depthWrite: false, toneMapped: false,
+    alphaMap: tex(cv(64, 64, (g, w) => { const r = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2); r.addColorStop(0, '#ffffff'); r.addColorStop(.55, '#9a9a9a'); r.addColorStop(1, '#000000'); g.fillStyle = r; g.fillRect(0, 0, w, w); }), { repeat: false, srgb: false }) });
+  for (const m of [M.cream, M.white, M.sand, M.brick, M.concrete, M.darkConcrete]) groundShade(m);
+  // photos: ground (tile size in metres), walls and roofs
+  const photoOf = (m, n, t, o = {}) => usePhoto(m, n, t, Object.assign({ lite }, o));
+  loads.push(
+    photoOf(M.grass, 'grass', '#5d8c42', { size: 3.2 }), photoOf(M.lawn, 'grass', '#68a04b', { size: 2.8 }),
+    photoOf(M.verge, 'grass', '#8b9a64', { size: 3.2 }),
+    photoOf(M.scrub, 'soil', '#ab9a78', { size: 4 }), photoOf(M.dirt, 'soil', '#a08865', { size: 4 }), photoOf(M.plotground, 'soil', '#b7a67f', { size: 4 }),
+    photoOf(M.asphalt, 'asphalt', '#3d3e41', { size: 5 }),
+    photoOf(M.paving, 'paving', '#c7bfb0', { size: 2.2, smooth: false }), photoOf(M.sidewalk, 'paving', '#b8b0a2', { size: 2.2, smooth: false }),
+    photoOf(M.gravel, 'gravel', '#a29d95', { size: 2 }),
+    photoOf(M.plot, 'soil', '#ffffff', { repeat: 2, smooth: false }),
+    photoOf(M.roof, 'concrete', '#a39e95', { size: 5, smooth: false }), photoOf(M.plaster, 'plaster', '#e3d8c3', { size: 3, smooth: false }),
+    photoOf(M.slab, 'concrete', '#d8d3c9', { size: 4, smooth: false }), photoOf(M.plinth, 'paving', '#77736b', { size: 1.6, smooth: false }),
+    photoOf(M.cladStone, 'paving', '#9b8f80', { size: 1.4, smooth: false }), photoOf(M.cladBrick, 'brick', '#a35f42', { size: 2, smooth: false }));
+  M.ready = Promise.all(loads);
   M.water.normalMap = waterNormals(); M.water.normalMap.repeat.set(.08, .08); M.water.normalScale = new THREE.Vector2(.6, .6);
   M.nalaWater.normalMap = waterNormals(); M.nalaWater.normalMap.repeat.set(.12, .12); M.nalaWater.normalScale = new THREE.Vector2(.25, .25);
   return M;
@@ -240,7 +397,7 @@ function dome(r, h) {
 // kit: thin wrapper so builders stay readable. Positions are local; y is the base.
 export function makeKit(group, M, poly, hooks, holes = []) {
   // holes: plots the plan puts inside the site; nothing of the model may stand on them
-  const k = { M, poly, holes, top: 0, signs: 0 };
+  const k = { M, poly, holes, top: 0, signs: 0, group };
   const inHole = (x, z) => holes.some(h => pip(x, z, h));
   const holeDist = (x, z) => holes.reduce((d, h) => Math.min(d, edgeDist(x, z, h)), Infinity);
   const add = (geom, mat, x, y, z, ry = 0, opt = {}) => {
@@ -257,6 +414,8 @@ export function makeKit(group, M, poly, hooks, holes = []) {
   k.raw = add;
   k.box = (w, h, d, mat, x = 0, y = 0, z = 0, ry = 0, opt) => { k.top = Math.max(k.top, y + h); return add(up(new THREE.BoxGeometry(w, h, d), h), mat, x, y, z, ry, opt); };
   k.fbox = (w, h, d, mat, x = 0, y = 0, z = 0, ry = 0) => { k.top = Math.max(k.top, y + h); return add(up(facadeBox(w, h, d), h), mat, x, y, z, ry); };
+  k.mbox = (w, h, d, mat, x = 0, y = 0, z = 0, ry = 0, opt) => { k.top = Math.max(k.top, y + h); return add(up(metreUV(new THREE.BoxGeometry(w, h, d), w, h, d), h), mat, x, y, z, ry, opt); };
+  k.ao = (w, d, x = 0, z = 0, ry = 0, spread = 1.2, dark = .45, y = .025) => add(aoSkirt(w, d, spread, dark), M.ao, x, y, z, ry, { shadow: false });
   k.cyl = (rt, rb, h, seg, mat, x = 0, y = 0, z = 0, opt = {}) => { k.top = Math.max(k.top, y + h); return add(up(new THREE.CylinderGeometry(rt, rb, h, seg, 1, !!opt.open, opt.t0 || 0, opt.tl || 2 * PI), h), mat, x, y, z, opt.ry || 0, opt); };
   k.geo = (geom, mat, x = 0, y = 0, z = 0, ry = 0, opt) => { geom.computeBoundingBox(); k.top = Math.max(k.top, y + geom.boundingBox.max.y); return add(geom, mat, x, y, z, ry, opt); };
   k.plane = (w, d, mat, x = 0, y = 0, z = 0, ry = 0, opt = {}) => { const g = new THREE.PlaneGeometry(w, d); g.rotateX(-PI / 2); if (opt.metres) { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w, uv.getY(i) * d); } return add(g, mat, x, y, z, ry, { shadow: false }); };
@@ -336,10 +495,11 @@ export function makeKit(group, M, poly, hooks, holes = []) {
   k.building = (w, d, floors, fac, x, z, ry = 0, o = {}) => {
     const h = floors * FLOOR, y0 = o.y || 0;
     k.fbox(w, h, d, fac, x, y0, z, ry);
-    k.box(w + .5, .45, d + .5, o.roof || M.roofGray, x, y0 + h, z, ry);
+    if (!y0) k.ao(w, d, x, z, ry);
+    if (o.roof) k.box(w + .5, .45, d + .5, o.roof, x, y0 + h, z, ry); else k.mbox(w + .5, .45, d + .5, M.roof, x, y0 + h, z, ry);
     if (o.parapet !== false) {
       const c = Math.cos(ry), s = Math.sin(ry), P = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
-      for (const [lx, lz, ww, dd] of [[0, d / 2, w + .5, .25], [0, -d / 2, w + .5, .25], [w / 2, 0, .25, d + .5], [-w / 2, 0, .25, d + .5]]) { const [px, pz] = P(lx, lz); k.box(ww, .9, dd, o.parapetMat || M.cream, px, y0 + h + .45, pz, ry); }
+      for (const [lx, lz, ww, dd] of [[0, d / 2, w + .5, .25], [0, -d / 2, w + .5, .25], [w / 2, 0, .25, d + .5], [-w / 2, 0, .25, d + .5]]) { const [px, pz] = P(lx, lz); k.mbox(ww, .9, dd, o.parapetMat || M.plaster, px, y0 + h + .45, pz, ry); }
       if (o.tanks !== false && w > 6 && d > 5) { const n = Math.min(3, Math.floor(w / 7)); for (let i = 0; i < n; i++) { const [px, pz] = P(-w / 2 + 2.5 + i * 2.6, -d / 2 + 2); k.cyl(.9, .9, 1.6, 14, i % 2 ? M.tank : M.white, px, y0 + h + .45, pz); } }
     }
     return y0 + h + .45;
@@ -950,31 +1110,75 @@ export function buildGate(k, span, asphalt) {
   }
 }
 
-// a house standing on a plot today (local X along the footprint's long side). Illustrative: the footprint and
-// position are real (detected on satellite imagery), the look and the number of storeys are assumed.
+// a house standing on a plot today. Illustrative: the footprint and position are real (detected on satellite
+// imagery); the look and the number of storeys are assumed. Local frame: +X points to the street the house faces
+// (society3d.js turns it), L is the depth along X, W the frontage along Z. Built the way houses in Faisalabad's
+// housing societies are: a stone plinth, plastered walls with sunshades over the windows, a stone or brick feature
+// panel on the front, a car porch with a terrace and steel railing above it, a flat roof with parapet, the stair
+// room with water tanks on top and, on many roofs, solar panels. Every part stays inside the footprint.
 export function buildHouse(k, L, W, p) {
   const M = k.M, r = rng((p.id || 1) * 97 + 13), st = Math.max(1, Math.min(3, p.storeys || 1));
-  const FAC = [M.facCream, M.facWhite, M.facPink, M.facSand, M.facBrick, M.facCream, M.facWhite];
-  const fac = FAC[(r() * FAC.length) | 0], trim = [M.cream, M.white, M.sand, M.terracotta][(r() * 4) | 0];
-  const l = Math.max(4.5, L * .94), w = Math.max(4, W * .94), s = r() < .5 ? 1 : -1;
-  if (l < 9 || w < 6.5 || st === 1) {                              // small building: one block
-    k.building(l, w, st, fac, 0, 0, 0, { tanks: l > 7 && w > 5.5 });
-    if (l > 6) k.box(.12, 2.1, 1.1, M.wood, s * (l / 2 + .03), 0, w * .15);
-    return;
+  const FAC = [M.facGrey, M.facBeige, M.facOff, M.facCream, M.facWhite, M.facPink, M.facGrey, M.facBeige, M.facBrick];
+  const fac = FAC[(r() * FAC.length) | 0], clad = [M.cladStone, M.cladBrick, M.cladDark, M.cladStone][(r() * 4) | 0];
+  const l = Math.max(4.4, L * .92), w = Math.max(4, W * .92), H = st * FLOOR, side = r() < .5 ? 1 : -1;
+  const spare = Math.max(0, L / 2 - l / 2 - .03);                         // room in front of the walls
+  const pd = l >= 12 && w >= 6.5 && st > 1 ? Math.min(4.2, l * .22) : 0;   // car porch depth at the front
+  const bl = l - pd, bx = -l / 2 + bl / 2, fx = bx + bl / 2;               // main block; fx = its front face
+  k.ao(l, w, 0, 0, 0, 1.6, .62);
+  k.mbox(bl + .1, .45, w + .1, M.plinth, bx, 0, 0);                       // plinth
+  k.fbox(bl, H, w, fac, bx, 0, 0);
+  for (let f = 1; f < st; f++) k.mbox(bl + .24, .16, w + .24, M.slab, bx, f * FLOOR - .16, 0);   // floor slabs
+  k.mbox(bl + .3, .2, w + .3, M.roof, bx, H - .16, 0);                    // roof slab (its top is the roof)
+  // parapet with a coping
+  const ry0 = H + .04, ph = .95, pt = .2;
+  for (const s of [-1, 1]) {
+    k.mbox(bl + .3, ph, pt, M.plaster, bx, ry0, s * (w / 2 + .15 - pt / 2));
+    k.mbox(pt, ph, w - .1, M.plaster, bx + s * (bl / 2 + .15 - pt / 2), ry0, 0);
+    k.mbox(bl + .34, .07, pt + .06, M.slab, bx, ry0 + ph, s * (w / 2 + .15 - pt / 2));
+    k.mbox(pt + .06, .07, w - .1, M.slab, bx + s * (bl / 2 + .15 - pt / 2), ry0 + ph, 0);
   }
-  const bl = l * .84, bx = -s * l * .08, h = st * FLOOR, fx = bx + s * bl / 2;   // main block, porch on the front
-  k.building(bl, w, st, fac, bx, 0, 0, { tanks: false });
-  const pw = Math.min(w * .62, 7.5), pd = l / 2 - Math.abs(fx) - .1, pz = (r() - .5) * (w - pw) * .6;
-  if (pd > .9) {
-    k.box(pd, .28, pw, trim, fx + s * pd / 2, FLOOR - .1, pz);                    // porch slab = first floor balcony
-    for (const dz of [-1, 1]) k.box(.34, FLOOR - .1, .34, M.white, fx + s * (pd - .2), 0, pz + dz * (pw / 2 - .2));
-    k.box(.1, 1.0, pw, trim, fx + s * (pd - .05), FLOOR + .18, pz);
-    for (const dz of [-1, 1]) k.box(pd, 1.0, .1, trim, fx + s * pd / 2, FLOOR + .18, pz + dz * (pw / 2 - .05));
+  // front: feature panel of stone, brick or dark tiles, rising above the parapet
+  const ft = Math.min(.22, Math.max(.06, (pd ? .22 : spare - .02)));
+  const cw = Math.min(4, Math.max(1.4, w * .32)), cz = side * (w / 2 - cw / 2 - .15);
+  if (w >= 5) k.mbox(ft, H + ph - .2, cw, clad, fx + ft / 2, .45, cz);
+  if (st > 1 && w >= 7 && !pd) for (const dz of [.9, 1.9]) k.mbox(Math.min(.4, ft + .1), H - .5, .12, M.cladDark, fx + Math.min(.4, ft + .1) / 2, .45, -side * (w / 2 - dz));
+  // car porch with a terrace above it
+  const pw = Math.min(w * .6, 6.5), pz = -side * (w / 2 - pw / 2 - .1);
+  if (pd) {
+    k.mbox(pd, .12, pw, M.paving, fx + pd / 2, 0, pz);
+    k.mbox(pd, .22, pw + .1, M.slab, fx + pd / 2, FLOOR - .22, pz);
+    for (const s of [-1, 1]) k.cyl(.15, .15, FLOOR - .22, 12, M.white, fx + pd - .3, 0, pz + s * (pw / 2 - .3));
+    const rail = (len, x, z, ry) => { const g = new THREE.PlaneGeometry(len, 1.0); g.translate(0, .5, 0); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * len / .5); k.raw(g, M.railing, x, FLOOR, z, ry); };
+    rail(pw, fx + pd - .06, pz, PI / 2);
+    for (const s of [-1, 1]) rail(pd - .1, fx + pd / 2, pz + s * (pw / 2 - .02), 0);
   }
-  k.box(.12, 2.2, 1.25, M.wood, fx + s * .04, 0, pz);                             // front door
-  // stair room and water tank on the roof
-  const mx = bx - s * bl * .22, mz = (r() < .5 ? 1 : -1) * w * .2;
-  k.box(3.1, 2.5, 3.1, M.cream, mx, h + .45, mz); k.box(3.5, .22, 3.5, M.roofGray, mx, h + 2.95, mz);
-  k.cyl(.75, .75, 1.3, 12, r() < .5 ? M.tank : M.white, mx, h + 3.17, mz);
-  if (r() < .6) k.box(bl * .5, .22, .22, trim, bx, h * .52, w / 2 + .1);          // a band on the side wall
+  // main door, with a small canopy when there is no porch
+  const dz = pd ? pz : -side * w * .18;
+  k.box(.1, 2.3, 1.15, M.wood, fx + .05, .45, dz);
+  if (!pd && spare > .6) k.mbox(Math.min(.8, spare - .05), .1, 1.7, M.slab, fx + Math.min(.8, spare - .05) / 2, 2.95, dz);
+  // roof: stair room with water tanks, air conditioners, solar panels
+  const bigRoof = bl * w > 55;
+  let tx = bx - bl / 2 + 1.1, tz = side * (w / 2 - 1.1), ty = ry0;
+  if (st > 1 || bigRoof) {
+    const sl = Math.min(3.6, bl * .34), sw = Math.min(3.2, w * .42), sx = bx - bl / 2 + sl / 2 + .35, sz = side * (w / 2 - sw / 2 - .35);
+    k.mbox(sl, 2.6, sw, M.plaster, sx, ry0, sz);
+    k.mbox(sl + .3, .16, sw + .3, M.roof, sx, ry0 + 2.6, sz);
+    k.box(.08, 2.05, .9, M.wood, sx + sl / 2 + .04, ry0, sz);
+    tx = sx - sl * .15; tz = sz; ty = ry0 + 2.76;
+  }
+  k.cyl(.55, .55, 1.15, 14, M.tank, tx, ty, tz);
+  if (r() < .45) k.cyl(.48, .48, 1.0, 14, r() < .5 ? M.white : M.blue, tx + 1.15 * (bl > 6 ? 1 : 0), ty, tz - side * (bl > 6 ? 0 : 1.1));
+  if (r() < .7 && bl > 6) k.box(.85, .6, .35, M.white, bx + bl * .1, ry0, -side * (w / 2 - .45));
+  // solar panels facing south (many roofs in Faisalabad carry them now), one tilted row in the middle of the roof
+  const cxr = bx + bl * .14, czr = -side * w * .08, R = Math.min(bl / 2 - Math.abs(cxr - bx) - .5, w / 2 - Math.abs(czr) - .5);
+  const n = Math.min(6, Math.floor(2 * Math.sqrt(Math.max(0, R * R - .95 * .95)) / 1.07));
+  if (r() < .5 && n >= 2 && st >= 1) {
+    const ry = -(k.group ? k.group.rotation.y : 0), tilt = .36;
+    const pg = new THREE.BoxGeometry(n * 1.07, .05, 1.75), uv = pg.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * n);
+    pg.rotateX(tilt); pg.translate(0, .62, 0);
+    k.raw(pg, M.solar, cxr, ry0, czr, ry);
+    const leg = new THREE.BoxGeometry(n * 1.07, .62 + .3, .07); leg.translate(0, .46, -.8 * Math.cos(tilt));
+    k.raw(leg, M.darkSteel, cxr, ry0, czr, ry);
+  }
 }
