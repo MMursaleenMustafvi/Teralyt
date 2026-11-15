@@ -238,8 +238,11 @@ function dome(r, h) {
 }
 
 // kit: thin wrapper so builders stay readable. Positions are local; y is the base.
-export function makeKit(group, M, poly, hooks) {
-  const k = { M, poly, top: 0, signs: 0 };
+export function makeKit(group, M, poly, hooks, holes = []) {
+  // holes: plots the plan puts inside the site; nothing of the model may stand on them
+  const k = { M, poly, holes, top: 0, signs: 0 };
+  const inHole = (x, z) => holes.some(h => pip(x, z, h));
+  const holeDist = (x, z) => holes.reduce((d, h) => Math.min(d, edgeDist(x, z, h)), Infinity);
   const add = (geom, mat, x, y, z, ry = 0, opt = {}) => {
     const m = new THREE.Mesh(geom, mat); m.position.set(x, y, z); m.rotation.y = ry;
     if (opt.rx) m.rotation.x = opt.rx; if (opt.rz) m.rotation.z = opt.rz;
@@ -269,7 +272,7 @@ export function makeKit(group, M, poly, hooks) {
   k.ground = (mat, y = .02, inset = 0) => {
     let pts = poly;
     if (inset) { const c = centroid(poly); pts = poly.map(([x, z]) => { const dx = x - c[0], dz = z - c[1], d = Math.hypot(dx, dz) || 1; return [x - dx / d * inset, z - dz / d * inset]; }); }
-    return k.shape(pts, null, mat, y);
+    return k.shape(pts, holes, mat, y);
   };
   k.wall = (h, t, mat, gate = 6, posts = null) => {
     // boundary wall along the footprint, gate gap in the middle of the longest edge
@@ -288,8 +291,13 @@ export function makeKit(group, M, poly, hooks) {
       } else seg(0, 1);
       if (posts) for (let s = 0; s <= l; s += 3) k.box(t * 1.6, h + .3, t * 1.6, posts, a[0] + dx * s / l, 0, a[1] + dz * s / l, ry);
     }
+    for (const hl of holes) for (let i = 0; i < hl.length; i++) {      // the wall runs round the plots inside the site too
+      const a = hl[i], b = hl[(i + 1) % hl.length], dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz);
+      if (l < .5) continue;
+      k.box(l, h, t, mat, a[0] + dx / 2, 0, a[1] + dz / 2, Math.atan2(-dz, dx));
+    }
   };
-  k.inside = (x, z, margin = 0) => pip(x, z, poly) && edgeDist(x, z, poly) >= margin;
+  k.inside = (x, z, margin = 0) => pip(x, z, poly) && edgeDist(x, z, poly) >= margin && !inHole(x, z) && holeDist(x, z) >= margin;
   k.fillTrees = (busy, step = 9, seed = 1, types = ['round', 'round', 'cone']) => {
     const r = rng(seed); let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
     for (const [x, z] of poly) { minx = Math.min(minx, x); maxx = Math.max(maxx, x); minz = Math.min(minz, z); maxz = Math.max(maxz, z); }
@@ -301,11 +309,11 @@ export function makeKit(group, M, poly, hooks) {
   };
   k.tree = (x, z, type = 'round', s = 1) => hooks.tree(group, x, z, type, s);
   k.lamp = (x, z, ry = 0, type = 'park') => hooks.lamp(group, x, z, ry, type);
-  k.car = (x, z, ry = 0, color) => { if (pip(x, z, poly) && edgeDist(x, z, poly) > 1.6) hooks.car(group, x, z, ry, color); };
+  k.car = (x, z, ry = 0, color) => { if (k.inside(x, z, 1.6)) hooks.car(group, x, z, ry, color); };
   // a paved rectangle that must stay inside the site: shrink it until all corners fit; returns [w, d] or null
   k.fitPlane = (w, d, mat, x, y, z, metres) => {
     for (let i = 0; i < 7; i++) {
-      const ok = [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, -1], [0, 1]].every(([a, b]) => pip(x + a * w / 2, z + b * d / 2, poly));
+      const ok = [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, -1], [0, 1], [0, 0]].every(([a, b]) => pip(x + a * w / 2, z + b * d / 2, poly) && !inHole(x + a * w / 2, z + b * d / 2));
       if (ok) { k.plane(w, d, mat, x, y, z, 0, metres ? { metres: true } : {}); return [w, d]; }
       w *= .8; if (i > 3) d *= .85;
     }
@@ -761,6 +769,8 @@ B.dispensary = (k, L, W) => {
 };
 
 B.homes = (k, L, W, lm) => reserved(k, L, W, lm, 'AREA FOR FDA CITY HOMES');
+// sites the newer plan reserves for government housing (Block X): open ground with a wall and the site's name board
+B.site = (k, L, W, lm) => reserved(k, L, W, lm, (lm && (lm.sign || lm.name) || 'RESERVED SITE').toUpperCase());
 
 B.metro = (k, L, W) => {
   const M = k.M;
@@ -891,20 +901,80 @@ export function buildLandmark(kind, k, L, W, lm) {
   return true;
 }
 
-// main gate across the boulevard (local X along the road, Z across it)
-export function buildGate(k, span) {
-  const M = k.M, half = span / 2;
-  for (const s of [-1, 1]) {
-    const z = s * (half + 3);
+// main gate across the entrance road (local X along the road, Z across it): two towers, a centre pier on the
+// median, a beam with the name board and a white canopy over each carriageway, as the gate reads on satellite imagery
+// The main gate across the Main Entrance Road (local X along the road, Z across it). `asphalt` lists the paved
+// bands across the gate, [z from, z to, road class], measured from the map data (both main carriageways and the
+// service roads beside them). Towers stand beyond the outermost asphalt, the centre pier and the guard room on the
+// median, the barrier posts on the median kerbs: no part of the gate stands on a road. Illustrative model.
+export function buildGate(k, span, asphalt) {
+  const M = k.M;
+  const bands = (asphalt && asphalt.length ? asphalt : [[-span / 2, -1.5, 'main'], [1.5, span / 2, 'main']]).map(b => [+b[0], +b[1], b[2] || 'main']).sort((a, b) => a[0] - b[0]);
+  const zMin = bands[0][0], zMax = bands[bands.length - 1][1];
+  // the median: the widest gap between two main carriageways
+  let med = null;
+  for (let i = 0; i < bands.length - 1; i++) {
+    const g0 = bands[i][1], g1 = bands[i + 1][0];
+    if (bands[i][2] === 'main' && bands[i + 1][2] === 'main' && (!med || g1 - g0 > med[1] - med[0])) med = [g0, g1];
+  }
+  if (!med) { let best = 0; for (let i = 0; i < bands.length - 1; i++) { const g = bands[i + 1][0] - bands[i][1]; if (g > best) { best = g; med = [bands[i][1], bands[i + 1][0]]; } } }
+  const tz = [zMin - 3.8, zMax + 3.8];                           // tower centres: 6 m towers, 0.8 m clear of the asphalt
+  const zc = (tz[0] + tz[1]) / 2, len = tz[1] - tz[0] + 6;
+  tz.forEach((z, j) => {
+    const s = j ? 1 : -1;
     k.fbox(6, 15, 6, M.facSand, 0, 0, z);
     k.box(7, .8, 7, M.sand, 0, 15, z);
     k.cyl(2.4, 2.4, 1.6, 8, M.sand, 0, 15.8, z);
     k.geo(dome(2.4, 2.8), M.domeGreen, 0, 17.4, z);
     k.cyl(.08, .08, 1.6, 6, M.gold, 0, 20.2, z);
-    k.box(3, 3.5, 14, M.sand, 0, 0, z + s * 10);
-    k.box(3.4, .4, 14.4, M.cream, 0, 3.5, z + s * 10);
+    k.box(3, 3.5, 8, M.sand, 0, 0, z + s * 7);                    // wing wall, away from the road
+    k.box(3.4, .4, 8.4, M.cream, 0, 3.5, z + s * 7);
+    k.flag(3.6, z + s * 1.2, 21);
+    k.lamp(-6, z + s * 1.2, 0, 'park'); k.lamp(6, z + s * 1.2, 0, 'park');
+  });
+  k.box(4, 3.4, len, M.sand, 0, 11, zc);                         // beam over every lane, tower to tower
+  k.box(4.4, .6, len + 1, M.cream, 0, 14.4, zc);
+  k.box(4.4, .35, len + 1, M.green, 0, 10.75, zc);
+  for (const s of [-1, 1]) k.sign('FDA CITY  FAISALABAD', Math.min(len * .7, 30), 2.3, s * 2.12, 11.55, zc, s * PI / 2, { bg: '#1f5a38', border: '#d6a840' });
+  if (med && med[1] - med[0] >= 1.6) {
+    const mz = (med[0] + med[1]) / 2, mw = med[1] - med[0];
+    const pw = Math.min(2.4, mw - .6);
+    k.box(pw, 11, Math.min(2.4, pw + .4), M.sand, 0, 0, mz);      // centre pier on the median
+    k.box(pw + .6, .5, pw + .6, M.cream, 0, 11, mz);
+    if (mw >= 4.2) k.building(4, Math.min(3.4, mw - .8), 1, M.facWhite, -8, mz, 0, { tanks: false });   // guard room on the median
+    // barrier posts on the median kerbs, arms raised
+    for (const [z, s] of [[med[0] + .45, -1], [med[1] - .45, 1]]) {
+      k.box(.5, 1.1, .5, M.yellow, -12.5, 0, z);
+      k.box(.16, 5.5, .16, M.red, -12.5, 1.1, z + s * .1);
+    }
   }
-  k.box(4, 3.2, span + 6, M.sand, 0, 11, 0);
-  k.box(4.4, .6, span + 7, M.cream, 0, 14.2, 0);
-  for (const s of [-1, 1]) k.sign('FDA CITY  FAISALABAD', Math.min(span * .8, 28), 2.2, s * 2.12, 11.5, 0, s * PI / 2, { bg: '#1f5a38', border: '#d6a840' });
+}
+
+// a house standing on a plot today (local X along the footprint's long side). Illustrative: the footprint and
+// position are real (detected on satellite imagery), the look and the number of storeys are assumed.
+export function buildHouse(k, L, W, p) {
+  const M = k.M, r = rng((p.id || 1) * 97 + 13), st = Math.max(1, Math.min(3, p.storeys || 1));
+  const FAC = [M.facCream, M.facWhite, M.facPink, M.facSand, M.facBrick, M.facCream, M.facWhite];
+  const fac = FAC[(r() * FAC.length) | 0], trim = [M.cream, M.white, M.sand, M.terracotta][(r() * 4) | 0];
+  const l = Math.max(4.5, L * .94), w = Math.max(4, W * .94), s = r() < .5 ? 1 : -1;
+  if (l < 9 || w < 6.5 || st === 1) {                              // small building: one block
+    k.building(l, w, st, fac, 0, 0, 0, { tanks: l > 7 && w > 5.5 });
+    if (l > 6) k.box(.12, 2.1, 1.1, M.wood, s * (l / 2 + .03), 0, w * .15);
+    return;
+  }
+  const bl = l * .84, bx = -s * l * .08, h = st * FLOOR, fx = bx + s * bl / 2;   // main block, porch on the front
+  k.building(bl, w, st, fac, bx, 0, 0, { tanks: false });
+  const pw = Math.min(w * .62, 7.5), pd = l / 2 - Math.abs(fx) - .1, pz = (r() - .5) * (w - pw) * .6;
+  if (pd > .9) {
+    k.box(pd, .28, pw, trim, fx + s * pd / 2, FLOOR - .1, pz);                    // porch slab = first floor balcony
+    for (const dz of [-1, 1]) k.box(.34, FLOOR - .1, .34, M.white, fx + s * (pd - .2), 0, pz + dz * (pw / 2 - .2));
+    k.box(.1, 1.0, pw, trim, fx + s * (pd - .05), FLOOR + .18, pz);
+    for (const dz of [-1, 1]) k.box(pd, 1.0, .1, trim, fx + s * pd / 2, FLOOR + .18, pz + dz * (pw / 2 - .05));
+  }
+  k.box(.12, 2.2, 1.25, M.wood, fx + s * .04, 0, pz);                             // front door
+  // stair room and water tank on the roof
+  const mx = bx - s * bl * .22, mz = (r() < .5 ? 1 : -1) * w * .2;
+  k.box(3.1, 2.5, 3.1, M.cream, mx, h + .45, mz); k.box(3.5, .22, 3.5, M.roofGray, mx, h + 2.95, mz);
+  k.cyl(.75, .75, 1.3, 12, r() < .5 ? M.tank : M.white, mx, h + 3.17, mz);
+  if (r() < .6) k.box(bl * .5, .22, .22, trim, bx, h * .52, w / 2 + .1);          // a band on the side wall
 }

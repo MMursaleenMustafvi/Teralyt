@@ -103,7 +103,8 @@ function Map3D(elementId, opts) {
   // ---- build ----------------------------------------------------------------
   async function build() {
     status('loading', 'Loading map data…');
-    const [boundary, roads, parks, plots] = await Promise.all([fetchJson('boundary'), fetchJson('roads'), fetchJson('parks'), fetchJson('plots')]);
+    const [boundary, roads, parks, plots, buildings, landmarks] = await Promise.all([fetchJson('boundary'), fetchJson('roads'), fetchJson('parks'), fetchJson('plots'),
+      fetchJson('buildings').catch(() => ({ features: [] })), fetchJson('landmarks').catch(() => ({ features: [] }))]);
 
     // society outline
     const bring = boundary.features[0].geometry.coordinates[0];
@@ -154,7 +155,7 @@ function Map3D(elementId, opts) {
     for (const f of plots.features) {
       const p = f.properties, ring = f.geometry.coordinates[0];
       p._ring = ring; p._base = 0;
-      byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase(), p.id);
+      byId.set(p.id, p); byNo.set(String(p.plot_no).toUpperCase().replace(/\s+/g, ''), p.id);
       api.plots.push(p);
       const b = blockSum[p.block] || (blockSum[p.block] = { x: 0, y: 0, n: 0 });
       b.x += p.lon; b.y += p.lat; b.n++;
@@ -177,6 +178,28 @@ function Map3D(elementId, opts) {
       } catch (e) { console.warn('terrain sampling failed, using ellipsoid heights', e); }
     }
     if (!skip('plots')) buildPlotPrimitive();
+    // houses standing today: real footprints (satellite-detected), height assumed at 3.5 m per storey
+    const houseInst = [];
+    for (const f of buildings.features) {
+      const g = f.geometry, pr = f.properties || {};
+      if (!g || g.type !== 'Polygon') continue;
+      const pos = toCart(g.coordinates[0], true);
+      if (pos.length < 3) continue;
+      const base = pr.plot_id && byId.get(pr.plot_id) ? byId.get(pr.plot_id)._base : 0;
+      houseInst.push(new C.GeometryInstance({
+        id: pr.plot_id ? { plot: pr.plot_id } : undefined,
+        geometry: new C.PolygonGeometry({ polygonHierarchy: new C.PolygonHierarchy(pos), height: base + 0.4, extrudedHeight: base + 0.4 + (+pr.height || 3.5), vertexFormat: C.PerInstanceColorAppearance.VERTEX_FORMAT }),
+        attributes: { color: C.ColorGeometryInstanceAttribute.fromColor(css('#efe4cf')) }
+      }));
+    }
+    if (houseInst.length && !skip('houses')) scene.primitives.add(new C.Primitive({ geometryInstances: houseInst, appearance: new C.PerInstanceColorAppearance({ translucent: false, closed: true }), allowPicking: true }));
+    // main gate (a point on the Main Entrance Road)
+    for (const f of landmarks.features) {
+      if (f.properties.kind !== 'gate' || f.geometry.type !== 'Point') continue;
+      const [lon, lat] = f.geometry.coordinates;
+      scene.primitives.add(new C.PointPrimitiveCollection()).add({ position: C.Cartesian3.fromDegrees(lon, lat, 2), pixelSize: 11, color: css('#d6a840'), outlineColor: css('#1a2a1e'), outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY });
+      labels.add({ position: C.Cartesian3.fromDegrees(lon, lat, 12), text: f.properties.name || 'Main gate', font: '700 14px "Plus Jakarta Sans", Segoe UI, sans-serif', fillColor: C.Color.WHITE, outlineColor: css('#1a2a1e'), outlineWidth: 3, style: C.LabelStyle.FILL_AND_OUTLINE, verticalOrigin: C.VerticalOrigin.BOTTOM, distanceDisplayCondition: new C.DistanceDisplayCondition(0, 6000), disableDepthTestDistance: Number.POSITIVE_INFINITY });
+    }
     scene.requestRender();
     status('ready', api.plots.length + ' plots');
     reset(0);
@@ -194,7 +217,7 @@ function Map3D(elementId, opts) {
     if (plotPrim) { scene.primitives.remove(plotPrim); plotPrim = null; }
     const inst = [];
     for (const p of api.plots) {
-      const h = Math.max(0.3, +p.height || 0.4);
+      const h = 0.4;                         // a plot is land: houses are drawn from their own footprints
       inst.push(new C.GeometryInstance({
         id: { plot: p.id },
         geometry: new C.PolygonGeometry({ polygonHierarchy: new C.PolygonHierarchy(toCart(p._ring, true)), height: p._base, extrudedHeight: p._base + h, vertexFormat: C.PerInstanceColorAppearance.VERTEX_FORMAT }),
@@ -241,7 +264,7 @@ function Map3D(elementId, opts) {
     if (!p) return null;
     api.selected = p.id;
     if (selPrim) { scene.primitives.remove(selPrim); selPrim = null; }
-    const h = Math.max(0.3, +p.height || 0.4) + 0.15;
+    const h = 0.55;                          // just above the flat plot
     selPrim = scene.primitives.add(new C.Primitive({
       geometryInstances: [
         new C.GeometryInstance({ id: { plot: p.id }, geometry: new C.PolygonGeometry({ polygonHierarchy: new C.PolygonHierarchy(toCart(p._ring, true)), height: p._base - 0.05, extrudedHeight: p._base + h, vertexFormat: C.PerInstanceColorAppearance.VERTEX_FORMAT }), attributes: { color: C.ColorGeometryInstanceAttribute.fromColor(css(SELECT)) } })
@@ -293,14 +316,21 @@ function Map3D(elementId, opts) {
       for (const p of api.plots) { const d = Math.hypot((p.lat - lat) * 111320, (p.lon - lon) * 94900); if (d < bd) { bd = d; best = p; } }
       return best && bd < 1500 ? [{ id: best.id, label: best.plot_no, sub: best.block + ' · ' + Math.round(bd) + ' m from the point' }] : [];
     }
+    const ad = q.toUpperCase().match(/^(\d{1,4})\s*,?\s*([A-FX])\s*-?\s*(\d)$/) || q.toUpperCase().match(/^([A-FX])\s*-?\s*(\d)\s*[-\s]\s*(\d{1,4})$/),
+      bn = q.toUpperCase().match(/^([A-FX])\s*-\s*(\d{1,4})$/);
+    if (ad || bn) {
+      const no = ad ? +(/^\d/.test(ad[1]) ? ad[1] : ad[3]) : +bn[2], sub = ad ? (/^\d/.test(ad[1]) ? ad[2] + ad[3] : ad[1] + ad[2]) : null, blk = bn ? bn[1] : sub[0];
+      const hit = api.plots.filter(p => p.plot_number === no && p.block.endsWith(' ' + blk) && (!sub || p.sub_block === sub));
+      if (hit.length) return hit.slice(0, 10).map(p => ({ id: p.id, label: p.plot_no, sub: p.block + (p.sub_block ? ' · sub-block ' + p.sub_block + ' (estimated)' : '') + ' · ' + p.size }));
+    }
     const n = q.toUpperCase().replace(/\s+/g, '');
-    const exact = byNo.get(n) || byNo.get(n.replace(/^([A-F])(\d+)$/, '$1-$2'));
+    const exact = byNo.get(n) || byNo.get(n.replace(/^([A-FX])(\d+)$/, '$1-$2'));
     const out = [];
     if (exact != null) { const p = byId.get(exact); out.push({ id: p.id, label: p.plot_no, sub: p.block + ' · ' + p.size + ' · ' + p.status }); }
-    const bm = q.match(/^(?:block\s*)?([a-fA-F])$/);
+    const bm = q.match(/^(?:block\s*)?([a-fxA-FX])$/);
     if (bm) out.push({ block: bm[1].toUpperCase(), label: 'Block ' + bm[1].toUpperCase(), sub: api.plots.filter(p => p.block.endsWith(' ' + bm[1].toUpperCase())).length + ' plots' });
     if (out.length) return out;
-    const pref = n.replace(/^([A-F])(\d)/, '$1-$2');
+    const pref = n.replace(/^([A-FX])(\d)/, '$1-$2');
     for (const p of api.plots) { if (String(p.plot_no).toUpperCase().startsWith(pref)) { out.push({ id: p.id, label: p.plot_no, sub: p.block + ' · ' + p.size + ' · ' + p.status }); if (out.length >= 8) break; } }
     return out;
   }
