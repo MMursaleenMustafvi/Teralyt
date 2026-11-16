@@ -66,12 +66,13 @@ export default function Home() {
           <div><b><Count n={built} on={seen.hero} /></b><span>Plots built today</span></div>
           <div><b><Count n={lms.length} on={seen.hero} /></b><span>Facilities</span></div>
         </div></div>
-        <div className="v3 rv" style={{ '--i': 2 }}>
+        <Link to="/map" className="v3 rv hlink" style={{ '--i': 2 }} title="Open the 3D map" aria-label="Open the 3D map of FDA City">
           <img className="bob heroimg" src={BASE + 'img/hero-3d.jpg'} alt="The 3D model of FDA City with its plots, houses, parks and main boulevard" />
           <svg className="orb" viewBox="0 0 1000 620"><g transform="rotate(-14 500 320)"><ellipse cx="500" cy="320" rx="440" ry="150" fill="none" stroke="rgba(227,207,165,.35)" strokeDasharray="3 9" /><g><rect x="-9" y="-5" width="18" height="10" rx="2" fill="#e3cfa5" /><rect x="-30" y="-3" width="18" height="6" fill="#3a8a55" /><rect x="12" y="-3" width="18" height="6" fill="#3a8a55" /><path d="M0 5L-26 60L26 60z" fill="rgba(123,208,139,.2)" /><animateMotion dur="14s" repeatCount="indefinite" path="M60,320 a440,150 0 1,0 880,0 a440,150 0 1,0 -880,0" /></g></g></svg>
           <div className="fc" style={{ left: 14, top: 16 }}><img src={BASE + 'globe.png'} alt="" /><div><b>FDA City</b>{db ? fmtNum(db.list.length) + ' plots in 7 blocks' : 'Faisalabad'}</div></div>
           <div className="fc" style={{ right: 14, bottom: 16, animationDelay: '-2s' }}><div><b>2030 forecast</b>Model estimate · not a guarantee</div></div>
-        </div></div>
+          <span className="hgo">Open the 3D map →</span>
+        </Link></div>
         <a className="cue" href="#/features" onClick={scrollTo('features')}>Scroll<svg viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg></a>
       </section>
 
