@@ -74,7 +74,7 @@ print(f"- non-rectangular plots (fill < 80% of bounding box): {len(odd)}", odd[:
 gap = [min((row_parts[j].distance(g) for j in row_tree.query(g.buffer(30.0))), default=99.0) for g in PG]
 far = [PP[i]["plot_no"] for i, d in enumerate(gap) if d > 6.0]
 print(f"- plots more than 3 m from any road reserve: {sum(1 for d in gap if d > 3.0)}, of which 3 to 6 m (registration gap): {sum(1 for d in gap if 3.0 < d <= 6.0)}; "
-      f"more than 6 m (no street found): {len(far)} ({100*len(far)/len(PG):.1f}%)", far[:6])
+      f"more than 6 m (no street found): {len(far)} ({100*len(far)/len(PG):.1f}%)", far[:6] if len(sys.argv) < 3 else [(PP[i]["plot_no"], round(PP[i]["lat"], 5), round(PP[i]["lon"], 5)) for i, d in enumerate(gap) if d > 6.0])
 # landmarks
 names = Counter(pr["name"] for pr, _ in LG)
 print("- duplicate landmark names:", {k: v for k, v in names.items() if v > 1})

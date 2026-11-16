@@ -1,4 +1,4 @@
-"""Builds assets/tex/foliage.webp, the texture of the trees in the 3D society model, from photographed leaves.
+"""Builds public/tex/foliage.webp, the texture of the trees in the 3D society model, from photographed leaves.
 
     python -I tools/make_foliage.py
 
@@ -20,7 +20,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, 'tools', 'source', 'cache', 'polyhaven')
-OUT = os.path.join(ROOT, 'assets', 'tex', 'foliage.webp')
+OUT = os.path.join(ROOT, 'public', 'tex', 'foliage.webp')
 BASE = 'https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/'
 FILES = ['jacaranda_tree/jacaranda_tree_leaves_diff_1k', 'jacaranda_tree/jacaranda_tree_leaves_alpha_1k',
          'island_tree_02/island_tree_02_leaves_diff_1k', 'island_tree_02/island_tree_02_leaves_alpha_1k']

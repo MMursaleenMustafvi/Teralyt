@@ -58,14 +58,18 @@ Official maps he supplied:
 
 ## 5. How to run
 
+Since 16 November 2026 the site is a React app (Vite). Node.js is needed: on Taha's PC a portable Node 24 LTS is in `C:\Users\Taha\tools\node` (add it to PATH, or install Node 20+ from nodejs.org).
+
 ```powershell
 cd C:\Users\Taha\Teralyt
-python -m http.server 8000
+$env:Path = "C:\Users\Taha\tools\node;" + $env:Path    # only on Taha's PC with the portable Node
+npm install        # once
+npm run dev        # then open http://localhost:5173/
 ```
 
-Open `http://localhost:8000/map.html` and press Ctrl+F5. Opening the file directly does not work, because the page fetches GeoJSON and ES modules.
+Pages (hash routes): `#/` home, `#/map`, `#/search?q=B-12`, `#/plot/2500`, `#/trends`, `#/login`, `#/dashboard`, `#/society`, `#/admin`. Map options: `#/map?plot=B-12`, `?id=2500`, `?lm=121` (main gate), `?block=C`, `?layer=cls`, `?time=evening|night`, `?ground=satellite`, `?view=earth`, `?quality=high`, `?audit=1`. Demo accounts: `user@terralyt.pk`, `head@terralyt.pk`, `admin@terralyt.pk`, password `Terralyt@2026`.
 
-URL options: `?plot=B-12`, `?id=2500`, `?lm=121` (121 is the main gate), `?time=evening` or `?time=night`, `?ground=satellite`, `?view=earth`, `?audit=1`.
+Production / testing: `npm run build`, then `cd dist; python -m http.server 8080` and open `http://127.0.0.1:8080/`. The Playwright test scripts use that port.
 
 Machine quirks:
 
@@ -78,7 +82,7 @@ Machine quirks:
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'http\.server' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
 
-How to check one spot after a change: regenerate, then load the page and fly to the spot, for example `python -I tools/shoot.py "http://127.0.0.1:8000/map.html?plot=A-1059" out.png --el "#stage"`, and look at the image. Taha reports flaws as close-up screenshots; the plot numbers in them locate the place, but **plot numbers shift after every regeneration**, so note the plot's latitude and longitude (shown in the side panel, or `lat` / `lon` in `plots.geojson`) before regenerating and search by `lat, lon` afterwards.
+How to check one spot after a change: regenerate, rebuild, serve `dist/`, then load the page and fly to the spot, for example `python -I tools/shoot.py "http://127.0.0.1:8080/#/map?plot=A-1059" out.png --el "#stage"`, and look at the image. Taha reports flaws as close-up screenshots; the plot numbers in them locate the place, but **plot numbers shift after every regeneration**, so note the plot's latitude and longitude (shown in the side panel, or `lat` / `lon` in `plots.geojson`) before regenerating and search by `lat, lon` afterwards.
 
 ## 6. What is built
 
@@ -252,7 +256,7 @@ emap.pk: the plots, plot numbers, streets inside the society and Block X already
 ## 10. Known flaws and things not verified
 
 - **Entrance-road commercial plots are trimmed**: the plan's rows along the Main Entrance Road (A-1 to about A-31, A-161 to A-194) are shallower than drawn because the real road with its service roads is wider than the plan draws it. Only the FDA's original plan can say where these plots really are.
-- **26 plots still have no street within 6 m.** The largest group, A-244 to A-252 beside Park A-2, faces a plan street that Park A-2's old outline covers for its full width; others sit on streets along the society's outer edge, which the outline cuts to half width so they are not traced.
+- **26 plots still have no street within 6 m** (A-244 to A-248 by Park A-2, 4 in Block B, 2 in C, 3 in D, 2 in E, 6 in F, 3 in X; `python -I tools/audit.py . all` lists them with positions). Tried on 16 November: a second tracing pass without the main-road corridor limit and with the outline widened by 9 m fixed only 1 plot, added 2 dead-end stubs and doubled the run time, so it was removed. The plan does draw the street beside Park A-2 (grey band between plots 242 to 251 and the park), but the tracer never sees it as street space; the next step is to look at `emap.road` there (`tools/overlay.py 31.51208 73.0714 --base plan`) and at what blocks it.
 - **Lane positions**: lane lines are painted at the centre of each OpenStreetMap carriageway line; where that line is 1 to 2 m off the real asphalt (for example way 376583796 between the south-west roundabout and A/B), so are the lane lines.
 
 - **emap.pk is a third-party redraw** with its watermark. Ask FDA for the original plan (CAD or PDF) and rerun with it.
@@ -314,9 +318,31 @@ Still open:
 
 Models must stay labelled illustrative. Plots must stay land parcels.
 
-## 13. Open items waiting on Taha
+## 13. React front end and the last map items (16 November 2026)
+
+Taha decided the whole front end is React (as the project report says) and that the AI/ML development model counts as backend work, not now. Done:
+
+| Area | What changed |
+| --- | --- |
+| Stack | Vite 8, React 19, React Router 7 (hash routes, so the built site works from any folder or static host), no TypeScript. three.js r169, three-mesh-bvh, N8AO and postprocessing from npm instead of the CDN import map. The old `*.html` pages, `assets/app.js` and `assets/iso.js` are removed (git history keeps them); `assets/` moved to `src/` (code, styles) and `public/` (logos, textures, `bg.js`). |
+| Real data everywhere | The 60 sample plots are gone. `tools/make_index.py` (run by `make_data.py`) writes `data/plots_index.json` (every plot, 1.1 MB, repeated text stored once) and `data/outlines/<block>.json`; the search, plot, dashboard and Society Head pages read them. |
+| Search | Plot numbers in any spelling (A-14, a14, A 14, a bare number in every block), blocks, facilities, coordinates (nearest plots within 400 m with distances); filters (block, size, status, built / vacant, development), sorting, pages of 25. |
+| Plot page | Drawn map of the plot, its neighbours (houses darker), streets and facilities; status with source and confidence; nearest mosque, park, school, hospital, shops and gate with distances; plot facts; status history; save, share, open in 3D, Google Maps link. |
+| Accounts and roles | Log in with checks and a lock after 5 wrong passwords; sign up (End User, or Society Head waiting for approval); pages for one role send others to log in. Kept in the browser until the backend exists (`src/lib/auth.js`), with three demo accounts. |
+| Society Head | Overview with real counts per block and status; status updates with the rule that Sold cannot go back to Available, a note, a log, and the change shown at once on the map and plot page; records: list, add (number must be new, boundary GeoJSON checked and tested for overlap with every plot of the block), remove and restore with a reason. |
+| Administrator | Overview; the real data sources (plan, block maps, OpenStreetMap, Google measurements, building footprints, nalla trace, sample status, assumed heights, Sentinel-2 to come, textures) with verify / flag / pending and an audit trail; user accounts (approve, disable, change role, reset password, add, remove). |
+| Trends | The chart is marked as sample values until the model exists; next to it the real built share per block (2023 footprints). |
+| Home | Real figures (plots, plots built, facilities), real plots in the search preview, pictures of the real 3D map (`tools/make_previews.py`), the forecast marked as sample. |
+| 3D map page | Same controls as before as a React page; the map is created on open and freed on leave (`dispose()`), the animated background pauses while it is open; a "Plot details" link in the side panel; Cesium token from `VITE_CESIUM_TOKEN`. |
+| Map additions | Plot numbers painted on vacant plots and white survey pillars at their corners when the camera is close (turned to read upright from the camera); running fountains in the parks and on the roundabout monuments (GPU particles); people walking on the park paths; two-layer moving ripples on the lakes and the nalla; icons on facility labels; an opening flight down to the society. |
+| Data | Dispensaries where the newer plan has them: `emap_dispensaries` in `make_data.py` takes the plan's green DIS sites that no older site covers (Block D north, 1.1 kanal) and `DIS_MEASURED` the one the plan reader merges into its neighbours (Block C, 21 x 27 m between the primary school and the commercial area, measured on the plan); they are claimed before the older outlines, so the older Commercial Centre C no longer covers the site (it had been dropped as a sliver). `tools/align_roads.py` now centres the boulevard's carriageways on the white dashed lane line where it shows (paint 28 grey levels brighter than the road's own asphalt, within 2 m of the asphalt band's centre): stations moved up to 1.9 m (way 376583797 by 0.8 m on average). |
+
+Checks: every page loads with no script error; logging in as each role, a status update, a duplicate record and the role guard were tested in headless Chrome; the map page loads, selects, goes full screen and back, opens the Cesium tab without a token, and is freed and rebuilt when left and reopened.
+
+## 14. Open items waiting on Taha
 
 - More screenshots of flaws, if he finds any after the 14 November fix. Fix those first and update this file.
 - Cesium ion token.
 - Real plot records from the society, if he can get them.
-- Whether to open the pull request for Mursaleen.
+- Open pull request #4 (feature/3d-map into main) for Mursaleen, and tell him the pages are React now (he may have local changes to the old HTML pages).
+- Test on his own laptop and phone (the Graphics button: Auto / High / Fast).
