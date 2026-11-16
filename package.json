@@ -1,0 +1,25 @@
+{
+  "name": "terralyt",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Terralyt: geospatial intelligence for Pakistani housing societies (React front end, three.js 3D society model, CesiumJS real-world view)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "n8ao": "1.10.1",
+    "postprocessing": "6.36.4",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
+    "react-router-dom": "7.18.5",
+    "three": "0.169.0",
+    "three-mesh-bvh": "0.7.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.2",
+    "vite": "8.3.5"
+  }
+}

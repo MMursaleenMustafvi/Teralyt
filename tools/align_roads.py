@@ -76,8 +76,17 @@ def asphalt(rgb):
     return ((mx - mn) < 26) & (v > 95) & (v < 185) & ((rgb[..., 0] - rgb[..., 2]) < 15)     # (dark: trees, grass; pink: brick)
 
 
-def shifts(line_xy, w, search=5.0):
-    """best sideways shift (m, to the left) every 20 m along a local-metre polyline; NaN where unclear"""
+def paint(rgb):
+    """white road paint (lane lines): bright and grey"""
+    mx, mn = rgb.max(-1), rgb.min(-1)
+    return ((mx - mn) < 32) & (rgb.mean(-1) > 188)
+
+
+def shifts(line_xy, w, search=5.0, lanes=1):
+    """best sideways shift (m, to the left) every 20 m along a local-metre polyline; NaN where unclear.
+    lanes=2 (the boulevard's carriageways): once the asphalt band is found, the white dashed line between the two
+    lanes, where it shows clearly within 2 m of the band's centre, gives the centre more precisely (the band alone can
+    be pulled 1 to 2 m towards a service road or a paved strip beside it)."""
     P = np.array(line_xy, float)
     seg = np.diff(P, axis=0)
     L = np.hypot(*seg.T)
@@ -96,7 +105,8 @@ def shifts(line_xy, w, search=5.0):
         X = c[0] + n[0] * T + u[0] * S
         Y = c[1] + n[1] * T + u[1] * S
         lon, lat = ll_arr(X, Y)
-        a = asphalt(sample(lon, lat)).mean(0)               # asphalt share across the road
+        rgb = sample(lon, lat)
+        a = asphalt(rgb).mean(0)                            # asphalt share across the road
         best, bo = -1, None
         for o in np.arange(-search, search + 1e-6, 0.25):
             inside = (ts >= o - w / 2) & (ts <= o + w / 2)
@@ -105,6 +115,16 @@ def shifts(line_xy, w, search=5.0):
             if sc > best:
                 best, bo = sc, o
         cover = a[(ts >= bo - w / 2) & (ts <= bo + w / 2)].mean()
+        if lanes == 2 and cover > 0.55:
+            # paint: clearly brighter than this road's own asphalt, and grey (at 0.25 m a dash is a blurred line)
+            v = rgb.mean(-1); asp = asphalt(rgb)
+            med = np.median(v[asp]) if asp.any() else 130.0
+            pt = ((v > med + 28) & ((rgb.max(-1) - rgb.min(-1)) < 36)).mean(0)   # the 13 m along the road catch a dash
+            win = np.where(np.abs(ts - bo) <= 2.0)[0]
+            k = win[np.argmax(pt[win])]
+            base = np.median(pt[win])
+            if pt[k] >= 0.12 and pt[k] > 3 * base + 0.02:
+                bo = float(ts[k])
         out.append((d, bo if cover > 0.55 else np.nan, cover))
     return out
 
@@ -136,7 +156,7 @@ def main():
         if L < 60:
             continue
         w = WIDTH[cls] if cls != "divider" else 19.0
-        st = shifts(pts, w)
+        st = shifts(pts, w, lanes=2 if cls == "main" else 1)
         d = np.array([s[0] for s in st])
         o = np.array([s[1] for s in st])
         ok = ~np.isnan(o)
