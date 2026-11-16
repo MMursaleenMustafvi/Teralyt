@@ -291,16 +291,26 @@ Done on 15 November 2026 (night), Taha's "proper 3D models, photo textures, soft
 
 Cost, measured in headless Chrome with software rendering (same view): 4.30 million triangles before, 4.70 million after (+9%); a frame took 5.6 s before and 6.7 to 7.4 s after (software rendering only; on a graphics card these shaders are cheap). Model audit (`?audit=1`): 124 sites, no part outside its site. No page errors by day, evening or night.
 
+Done on 16 November 2026 (the four open items above):
+
+| Item | What changed | Where |
+| --- | --- | --- |
+| Trees with real leaves | Close to the camera every tree is built from leaf cards textured with photographed leaves (CC0, Poly Haven): compound leaves for the round crowns (neem, sheesham), long single leaves for the columnar Ashoka, fronds for the date palms on the boulevard, bark on trunks and branches. The cards are alpha-tested with alpha-to-coverage (smooth edges) and lit as a ball, so the crown looks round from every side; lower and inner leaves are darker. One 290 KB texture (`assets/tex/foliage.webp`, built by `tools/make_foliage.py`). | `treeNear`, `crown`, `frond` in `society3d.js`; `M.foliage` in `models3d.js` |
+| Level of detail | Trees are instanced per 600 m patch in two versions: leaf cards near the camera, one low-poly crown far away (`treeFar`). Houses keep walls, roof and parapet everywhere; their small parts (porch, railing, stair room, tanks, solar panels, slabs, front panel) are merged per 500 m patch and drawn only near the camera. Each patch switches by its distance from the camera (`lodItems`, `updateLod`; 720 m for trees, 640 m for house details, with a little hysteresis). The overview now draws 2.79 million triangles instead of 4.70 million and a frame took 3.2 to 3.3 s instead of 6.7 to 7.4 s in the software-rendered test. If the leaf texture cannot load, the far version is used everywhere. | `society3d.js` |
+| Ambient occlusion | Real screen-space ambient occlusion (N8AO 1.10.1, which handles the map's logarithmic depth buffer): soft shade in corners, under parapets, round tanks and where walls meet the ground. Half resolution, SMAA for the edges. **Graphics** button (and `?quality=`): Auto (default: on when this device draws a frame in under 20 ms without it, measured for 2.5 s after loading; off again if frames then take over 34 ms), High (on, details drawn 1.4 times further out), Fast (off, details only close by). Weak devices never switch it on by themselves. Loaded from jsDelivr only when switched on. | `setAO`, `autoQuality`, `setQuality` in `society3d.js`; import map and button in `map.html` |
+| Light from the sky and distance haze | The environment map (ambient light and reflections) is rendered from the sky itself: the physical sky without its sun disc by day and in the evening, the night gradient at night, and the ground below the horizon; rendered again when the time of day changes. Glass and cars reflect the real sky colour. Exponential haze in the horizon colour fades distant land (about 9% at 3 km, 63% at 10 km by day; a little denser and warmer in the evening). The sky light is kept at 0.55 with a warm fill light, because the sky is blue and more of it made everything look cold. | `setSkyLight` in `society3d.js` |
+| Large buildings | A stone plinth, the floor slabs showing on the walls and air-conditioner condensers on large roofs, added to every landmark building (schools, hospital, offices, mosque halls), as on the houses. | `k.building` in `models3d.js` |
+
+Why the large buildings are not ready-made glTF files: no free model of these particular buildings exists (FDA City's own mosque, schools, hospital, offices), and a generic downloaded building would show a buyer something that is not there. Free models that do exist are either cartoon-style or photo-scanned with hundreds of thousands to millions of triangles each (Poly Haven's trees: 0.3 to 17 million). The procedural models are fitted to each real site, built from the official block maps, merged into few draw calls and now use the same photo textures as the houses. Real models of these buildings could come from the FDA's architectural drawings or from photos taken on site (photogrammetry); they would then be fitted to the site rectangle the same way (`inscribedRect`).
+
 Still open:
 
-1. Ready-made glTF models for the large buildings (mosque, school, hospital, shops) and trees with leaf textures. The procedural models are kept because they fit each real site and merge into few draw calls; glTF models would have to be fitted the same way.
-2. A real ambient-occlusion pass (N8AO or GTAO) for high-end PCs; needs testing with the logarithmic depth buffer the map uses.
-3. Distance haze and a sky-based light probe.
-4. Plot detail: corner markers, plot number on the ground when zoomed in.
-5. Better water for the nalla and park lakes.
-6. People, running fountains.
-7. A cinematic opening camera move and icon labels.
-8. Level of detail for houses and trees, so the extra graphics stay fast on weak devices.
+1. Real 3D models of the large buildings from the FDA's drawings or site photos (see above).
+2. Plot detail: corner markers, plot number on the ground when zoomed in.
+3. Better water for the nalla and park lakes.
+4. People, running fountains.
+5. A cinematic opening camera move and icon labels.
+6. Level of detail for the landmark buildings and the plots mesh, and a test on a real phone and an integrated-graphics laptop.
 
 Models must stay labelled illustrative. Plots must stay land parcels.
 

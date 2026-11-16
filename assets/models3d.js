@@ -45,9 +45,10 @@ const groundTex = (base, cols, n, seed, extra) => tex(cv(256, 256, (g, w, h) => 
 // ---------------------------------------------------------------------------
 const TEX_URL = new URL('./tex/', import.meta.url).href;
 const photos = {};
-export function photo(name) {
-  return photos[name] || (photos[name] = new Promise((res, rej) => {
-    const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('texture ' + name + ' not loaded')); im.src = TEX_URL + name + '.jpg';
+export function photo(name, ext = 'jpg') {
+  const key = name + '.' + ext;
+  return photos[key] || (photos[key] = new Promise((res, rej) => {
+    const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('texture ' + key + ' not loaded')); im.src = TEX_URL + key;
   }));
 }
 const toLin = c => c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4);
@@ -368,6 +369,17 @@ export function createMaterials({ lite = false } = {}) {
     photoOf(M.roof, 'concrete', '#a39e95', { size: 5, smooth: false }), photoOf(M.plaster, 'plaster', '#e3d8c3', { size: 3, smooth: false }),
     photoOf(M.slab, 'concrete', '#d8d3c9', { size: 4, smooth: false }), photoOf(M.plinth, 'paving', '#77736b', { size: 1.6, smooth: false }),
     photoOf(M.cladStone, 'paving', '#9b8f80', { size: 1.4, smooth: false }), photoOf(M.cladBrick, 'brick', '#a35f42', { size: 2, smooth: false }));
+  // trees: leaf cards textured with photographed leaves (assets/tex/foliage.webp, made by tools/make_foliage.py),
+  // alpha-tested; light falls on a crown as on a ball (normals from the crown centre, set in society3d.js), so both
+  // faces of a card are shaded alike (the usual flip of back-face normals is undone)
+  M.foliage = new THREE.MeshStandardMaterial({ vertexColors: true, alphaTest: .42, alphaToCoverage: true, side: THREE.DoubleSide, roughness: .82, metalness: 0 });
+  M.foliage.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n#ifdef DOUBLE_SIDED\n  normal *= faceDirection;\n#endif'); };
+  M.treeFar = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .9, metalness: 0 });   // simple trees far away
+  M.foliageOk = false;
+  loads.push(photo('foliage', 'webp').then(im => {
+    const t = new THREE.Texture(im); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; t.needsUpdate = true;
+    M.foliage.map = t; M.foliage.needsUpdate = true; M.foliageOk = true;
+  }).catch(() => {}));
   M.ready = Promise.all(loads);
   M.water.normalMap = waterNormals(); M.water.normalMap.repeat.set(.08, .08); M.water.normalScale = new THREE.Vector2(.6, .6);
   M.nalaWater.normalMap = waterNormals(); M.nalaWater.normalMap.repeat.set(.12, .12); M.nalaWater.normalScale = new THREE.Vector2(.25, .25);
@@ -406,6 +418,7 @@ export function makeKit(group, M, poly, hooks, holes = []) {
     m.castShadow = opt.shadow !== false; m.receiveShadow = true;
     if (opt.keep) m.userData.keep = true;
     if (opt.anim) m.userData.anim = opt.anim;
+    if (k.level) m.userData.level = k.level;           // 1 = small detail, drawn only near the camera (society3d.js)
     group.add(m);
     k.top = Math.max(k.top, y + (geom.boundingBox ? 0 : 0));
     return m;
@@ -493,14 +506,19 @@ export function makeKit(group, M, poly, hooks, holes = []) {
   };
   k.bench = (x, z, ry = 0) => { k.box(1.8, .1, .5, M.wood, x, .45, z, ry); k.box(1.8, .45, .1, M.wood, x + Math.sin(ry) * .25, .5, z + Math.cos(ry) * .25, ry); k.box(.1, .45, .45, M.darkSteel, x + Math.cos(ry) * .8, 0, z - Math.sin(ry) * .8, ry); k.box(.1, .45, .45, M.darkSteel, x - Math.cos(ry) * .8, 0, z + Math.sin(ry) * .8, ry); };
   k.building = (w, d, floors, fac, x, z, ry = 0, o = {}) => {
-    const h = floors * FLOOR, y0 = o.y || 0;
+    const h = floors * FLOOR, y0 = o.y || 0, glassy = fac === M.facGlass || fac === M.facShop;
     k.fbox(w, h, d, fac, x, y0, z, ry);
     if (!y0) k.ao(w, d, x, z, ry);
+    // a stone plinth and the floor slabs showing on the walls (not on glass or shop fronts)
+    if (!y0 && !glassy && o.plinth !== false) k.mbox(w + .12, .5, d + .12, M.plinth, x, 0, z, ry);
+    if (!glassy) for (let f = 1; f < floors; f++) k.mbox(w + .24, .14, d + .24, M.slab, x, y0 + f * FLOOR - .14, z, ry);
     if (o.roof) k.box(w + .5, .45, d + .5, o.roof, x, y0 + h, z, ry); else k.mbox(w + .5, .45, d + .5, M.roof, x, y0 + h, z, ry);
     if (o.parapet !== false) {
       const c = Math.cos(ry), s = Math.sin(ry), P = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
       for (const [lx, lz, ww, dd] of [[0, d / 2, w + .5, .25], [0, -d / 2, w + .5, .25], [w / 2, 0, .25, d + .5], [-w / 2, 0, .25, d + .5]]) { const [px, pz] = P(lx, lz); k.mbox(ww, .9, dd, o.parapetMat || M.plaster, px, y0 + h + .45, pz, ry); }
       if (o.tanks !== false && w > 6 && d > 5) { const n = Math.min(3, Math.floor(w / 7)); for (let i = 0; i < n; i++) { const [px, pz] = P(-w / 2 + 2.5 + i * 2.6, -d / 2 + 2); k.cyl(.9, .9, 1.6, 14, i % 2 ? M.tank : M.white, px, y0 + h + .45, pz); } }
+      // air-conditioner condensers along the back of a large roof
+      if (w > 14 && d > 9) { const n = Math.min(5, Math.floor((w - 6) / 3.4)); for (let i = 0; i < n; i++) { const [px, pz] = P(-w / 2 + 3.2 + i * 3.4, d / 2 - 1.3); k.box(1.0, .75, .55, M.white, px, y0 + h + .45, pz, ry); } }
     }
     return y0 + h + .45;
   };
@@ -1124,10 +1142,11 @@ export function buildHouse(k, L, W, p) {
   const spare = Math.max(0, L / 2 - l / 2 - .03);                         // room in front of the walls
   const pd = l >= 12 && w >= 6.5 && st > 1 ? Math.min(4.2, l * .22) : 0;   // car porch depth at the front
   const bl = l - pd, bx = -l / 2 + bl / 2, fx = bx + bl / 2;               // main block; fx = its front face
+  // what is seen from far away: walls, plinth, roof and parapet. Everything after `k.level = 1` is detail.
+  k.level = 0;
   k.ao(l, w, 0, 0, 0, 1.6, .62);
   k.mbox(bl + .1, .45, w + .1, M.plinth, bx, 0, 0);                       // plinth
   k.fbox(bl, H, w, fac, bx, 0, 0);
-  for (let f = 1; f < st; f++) k.mbox(bl + .24, .16, w + .24, M.slab, bx, f * FLOOR - .16, 0);   // floor slabs
   k.mbox(bl + .3, .2, w + .3, M.roof, bx, H - .16, 0);                    // roof slab (its top is the roof)
   // parapet with a coping
   const ry0 = H + .04, ph = .95, pt = .2;
@@ -1137,6 +1156,8 @@ export function buildHouse(k, L, W, p) {
     k.mbox(bl + .34, .07, pt + .06, M.slab, bx, ry0 + ph, s * (w / 2 + .15 - pt / 2));
     k.mbox(pt + .06, .07, w - .1, M.slab, bx + s * (bl / 2 + .15 - pt / 2), ry0 + ph, 0);
   }
+  k.level = 1;
+  for (let f = 1; f < st; f++) k.mbox(bl + .24, .16, w + .24, M.slab, bx, f * FLOOR - .16, 0);   // floor slabs
   // front: feature panel of stone, brick or dark tiles, rising above the parapet
   const ft = Math.min(.22, Math.max(.06, (pd ? .22 : spare - .02)));
   const cw = Math.min(4, Math.max(1.4, w * .32)), cz = side * (w / 2 - cw / 2 - .15);
