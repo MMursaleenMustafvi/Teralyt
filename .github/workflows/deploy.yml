@@ -1,6 +1,6 @@
 # Builds the React site (npm run build) and publishes dist/ to GitHub Pages on every push to main.
 # One-time setup in the repository: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
-# Site: https://mmursaleenmustafvi.github.io/Teralyt/
+# Site: https://tahasaleemsheikh.github.io/Teralyt/
 name: Deploy to GitHub Pages
 
 on:
