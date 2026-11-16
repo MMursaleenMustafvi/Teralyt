@@ -1,0 +1,48 @@
+# Builds the React site (npm run build) and publishes dist/ to GitHub Pages on every push to main.
+# One-time setup in the repository: Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Site: https://mmursaleenmustafvi.github.io/Teralyt/
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:          # "Run workflow" button on the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          # Optional: a Cesium ion token for real terrain in the Real-world tab, saved as a repository secret
+          # (Settings -> Secrets and variables -> Actions). Without it the tab uses OpenStreetMap on flat ground.
+          VITE_CESIUM_TOKEN: ${{ secrets.VITE_CESIUM_TOKEN }}
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
