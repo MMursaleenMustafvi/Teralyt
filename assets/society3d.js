@@ -15,10 +15,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { createMaterials, makeKit, buildLandmark, buildGate, buildHouse, rng, metreUV } from './models3d.js?v=20261116a';
+import { createMaterials, makeKit, buildLandmark, buildGate, buildHouse, rng, metreUV } from './models3d.js?v=20261116b';
 
 const PI = Math.PI;
 const LAT_REF = 31.525, KX = 111320 * Math.cos(LAT_REF * PI / 180), KY = 111320;
@@ -70,11 +69,10 @@ export function Society3D(el, opts = {}) {
 
   const M = createMaterials({ lite: lowEnd });         // weak devices: no shader that hides texture repeats
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
-  scene.environmentIntensity = .45;
+  scene.environmentIntensity = .55;        // the environment map is rendered from the sky (setSkyLight, below)
 
   // lights
-  const hemi = new THREE.HemisphereLight('#d6e9ff', '#6b5b3b', 1.05);
+  const hemi = new THREE.HemisphereLight('#fff3e0', '#6b5b3b', .62);   // warm fill; the rest of the ambient light comes from the sky map
   const sun = new THREE.DirectionalLight('#fff0d4', 2.7);
   sun.castShadow = true;
   sun.shadow.mapSize.set(lowEnd ? 2048 : 4096, lowEnd ? 2048 : 4096);
@@ -109,20 +107,64 @@ export function Society3D(el, opts = {}) {
     s.renderOrder = -999; s.frustumCulled = false; s.visible = false; return s;
   })();
   scene.add(stars);
-  scene.fog = new THREE.Fog('#c9d6df', 3200, 14000);
+  // distance haze (aerial perspective): exponential fog in the colour of the horizon, density by time of day
+  scene.fog = new THREE.FogExp2('#dbe8f2', 1e-4);
   su.sunPosition.value.copy(SUN_DIR);
+  // light from the sky: the environment map (ambient light and reflections) is rendered from the sky itself: the
+  // physical sky without its sun disc by day and in the evening (the sun is the directional light), the night gradient
+  // at night, and the ground below the horizon. Rendered again whenever the time of day changes.
+  const envScene = new THREE.Scene(), envSky = new Sky();
+  envSky.scale.setScalar(40); envSky.renderOrder = -2;
+  envSky.material.fragmentShader = envSky.material.fragmentShader.replace('L0 += ( vSunE * 19000.0 * Fex ) * sundisk;', '');
+  envSky.material.depthWrite = false;
+  const envNight = new THREE.Mesh(new THREE.SphereGeometry(45, 24, 12), sky.material); envNight.renderOrder = -2;
+  const envGround = new THREE.Mesh(new THREE.CircleGeometry(90, 32).rotateX(-PI / 2), new THREE.MeshBasicMaterial({ color: '#6a604a' }));
+  envGround.position.y = -1.5;
+  envScene.add(envSky, envNight, envGround);
+  let envTarget = null;
+  function setSkyLight(night, eve) {
+    const eu = envSky.material.uniforms;
+    for (const n of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG']) eu[n].value = su[n].value;
+    eu.sunPosition.value.copy(su.sunPosition.value);
+    envSky.visible = !night; envNight.visible = night;
+    envGround.material.color.set(night ? '#06070a' : eve ? '#4d3d2c' : '#6a604a');
+    const rt = pmrem.fromScene(envScene, 0, .1, 300);
+    if (envTarget) envTarget.dispose();
+    envTarget = rt; scene.environment = rt.texture;
+  }
+  setSkyLight(false, false);
 
-  // post-processing (used at night for glowing lights)
-  let composer = null, bloom = null;
+  // post-processing: bloom at night (glowing lights) and ambient occlusion on capable devices
+  let composer = null, bloom = null, renderPass = null, aoPass = null, smaaPass = null, aoOn = false, aoLoading = null, aoFailed = false;
   function ensureComposer() {
     if (composer) return;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(size.x, size.y, { samples: 4, type: THREE.HalfFloatType }));
-    composer.addPass(new RenderPass(scene, camera));
-    bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), .9, .5, .82);
+    renderPass = new RenderPass(scene, camera); composer.addPass(renderPass);
+    bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), .9, .5, .82); bloom.enabled = api.time === 'night';
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
     resize();
+  }
+  // ambient occlusion: the soft shade in corners, under eaves and where walls meet the ground, computed from the depth
+  // of each rendered frame (N8AO, which handles the logarithmic depth buffer). Half resolution; SMAA smooths the edges
+  // (multisampling does not survive the AO pass). Loaded only when switched on.
+  function setAO(on) {
+    if (!on) { aoOn = false; if (aoPass) { aoPass.enabled = false; renderPass.enabled = true; smaaPass.enabled = false; } return Promise.resolve(false); }
+    if (aoPass) { aoOn = true; aoPass.enabled = true; renderPass.enabled = false; smaaPass.enabled = true; return Promise.resolve(true); }
+    if (aoLoading) return aoLoading;
+    ensureComposer();
+    aoLoading = Promise.all([import('n8ao'), import('three/addons/postprocessing/SMAAPass.js')]).then(([{ N8AOPass }, { SMAAPass }]) => {
+      const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+      aoPass = new N8AOPass(scene, camera, size.x, size.y);
+      Object.assign(aoPass.configuration, { aoRadius: 3.2, distanceFalloff: 1.0, intensity: 2.4, halfRes: true, gammaCorrection: false, transparencyAware: false });
+      aoPass.setQualityMode(lowEnd ? 'Performance' : 'Medium');
+      composer.insertPass(aoPass, 1);
+      smaaPass = new SMAAPass(size.x, size.y); composer.insertPass(smaaPass, composer.passes.length - 1);
+      renderPass.enabled = false; aoOn = api.quality !== 'fast'; aoPass.enabled = aoOn; renderPass.enabled = !aoOn; smaaPass.enabled = aoOn;
+      resize(); return aoOn;
+    }).catch(e => { console.warn('Ambient occlusion is not available:', e && e.message ? e.message : e); aoFailed = true; aoLoading = null; return false; });
+    return aoLoading;
   }
 
   // ---- projection ---------------------------------------------------------------
@@ -645,26 +687,38 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         else seg(0, 1, wallParts, 1.7, .22);
       }
     }
-    const buckets = new Map();
-    const push = (mat, geo) => { const l = buckets.get(mat) || []; l.push(geo); buckets.set(mat, l); };
+    // merged by material. Walls, roof and parapet of every house are always drawn; the small parts (porch, railing,
+    // stair room, tanks, solar panels, sunshade slabs, front panel) are merged per 500 m patch and drawn only while
+    // the camera is near that patch (lodItems)
+    const buckets = new Map(), patches = new Map(), PATCH = 500;
+    const push = (bk, mat, geo) => { const l = bk.get(mat) || []; l.push(geo); bk.set(mat, l); };
     for (const g of groups) {
       g.updateMatrixWorld(true);
+      const key = Math.floor(g.position.x / PATCH) + ',' + Math.floor(g.position.z / PATCH);
       g.traverse(o => {
         if (!o.isMesh) return;
         const geo = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); geo.applyMatrix4(o.matrixWorld);
         const mat = Array.isArray(o.material) ? o.material[0] : o.material;
         for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name) && !(name === 'color' && mat === M.ao)) geo.deleteAttribute(name);
         geo.setAttribute('pid', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count).fill(g.userData.pi), 1));
-        push(mat, geo);
+        if (!o.userData.level) { push(buckets, mat, geo); return; }
+        let pa = patches.get(key); if (!pa) patches.set(key, pa = { x: 0, z: 0, n: 0, bk: new Map() });
+        pa.x += g.position.x; pa.z += g.position.z; pa.n++; push(pa.bk, mat, geo);
       });
       scene.remove(g);
     }
-    for (const g of wallParts) push(M.plaster, g);
-    for (const g of gateParts) push(M.gate, g);
-    for (const [mat, list] of buckets) {
+    for (const g of wallParts) push(buckets, M.plaster, g);
+    for (const g of gateParts) push(buckets, M.gate, g);
+    const meshOf = (mat, list) => {
       const mesh = new THREE.Mesh(mergeGeometries(list), mat); mesh.castShadow = mat !== M.ao; mesh.receiveShadow = true; mesh.userData.plots = true; mesh.userData.houses = true;
-      scene.add(mesh); if (mat !== M.ao) pickables.push(mesh);
+      if (mat !== M.ao) pickables.push(mesh); return mesh;
+    };
+    for (const [mat, list] of buckets) scene.add(meshOf(mat, list));
+    for (const pa of patches.values()) {
+      const grp = new THREE.Group(); for (const [mat, list] of pa.bk) grp.add(meshOf(mat, list)); scene.add(grp);
+      lodItems.push({ c: new THREE.Vector3(pa.x / pa.n, Y.plotTop, pa.z / pa.n), near: [grp], far: [], d: 640, on: null });
     }
+    api.housePatches = patches.size;
   }
 
   // ---- instanced trees, lamps, cars ------------------------------------------------
@@ -688,18 +742,83 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   }
   const blob = (r, x, y, z, sy = .85) => new THREE.IcosahedronGeometry(r, 1).scale(1, sy, 1).translate(x, y, z);
   const plain = (geom, hex) => { const g = colored(geom, hex); g.deleteAttribute('uv'); return g; };
-  const treeGeo = {
-    round: () => mergeGeometries([plain(new THREE.CylinderGeometry(.14, .26, 3.4, 7).translate(0, 1.7, 0), '#5f4630'),
-      shaded(blob(2.3, 0, 4.9, 0), '#6fae4a', '#2f5f2a'), shaded(blob(1.7, 1.3, 4.3, .5), '#69a846', '#2c5a28'), shaded(blob(1.6, -1.1, 4.5, -.7), '#74b34f', '#2f5f2a'), shaded(blob(1.4, .2, 6.2, .3), '#7dbb55', '#3a6f30')]),
-    cone: () => mergeGeometries([plain(new THREE.CylinderGeometry(.12, .2, 1.4, 6).translate(0, .7, 0), '#5d4029'),
-      shaded(new THREE.IcosahedronGeometry(1, 1).scale(1.15, 3.4, 1.15).translate(0, 4.4, 0), '#4f8f45', '#1f4a26')]),
-    palm: () => { const parts = [plain(new THREE.CylinderGeometry(.16, .28, 7.6, 8).translate(0, 3.8, 0), '#8a6b45')];
-      for (let i = 0; i < 9; i++) { const a = i / 9 * 2 * PI, droop = .32 + (i % 3) * .1;
-        for (let s = 0; s < 3; s++) { const len = 1.3, g = new THREE.BoxGeometry(len, .06, .62 - s * .16).translate(len / 2, 0, 0).rotateZ(-droop - s * .38).translate(Math.cos(droop + (s ? .2 : 0)) * 1.25 * s, 7.6 - Math.sin(droop) * 1.2 * s - s * s * .22, 0).rotateY(a); parts.push(plain(g, s === 2 ? '#3f7a30' : i % 2 ? '#559a3c' : '#4a8c36')); } }
-      parts.push(plain(new THREE.SphereGeometry(.42, 8, 6).translate(0, 7.45, 0), '#6d5a2a')); return mergeGeometries(parts); }
+  // ---- trees: leaf cards near the camera, simple crowns far away ---------------------------------------------
+  // Near: crowns of crossed leaf cards textured with photographed leaves (M.foliage: compound leaves for round crowns
+  // such as neem and sheesham, long single leaves for the columnar Ashoka, fronds for date palms), bark on trunk and
+  // branches. Far: one low-poly crown per tree in the average leaf colour (M.treeFar). Both are instanced per 600 m
+  // patch; each patch shows one or the other by its distance from the camera (lodItems, updateLod).
+  const ATLAS = { compound: [0, .5], single: [.5, .5], frond: [0, 0], bark: [.5, 0] };     // atlas cells (u0, v0), .5 wide
+  const V = (x, y, z) => new THREE.Vector3(x, y, z), UPV = V(0, 1, 0), ZV = V(0, 0, 1);
+  function cellUV(g, cell, u0 = 0, u1 = 1, v0 = 0, v1 = 1) {
+    const [cu, cv] = ATLAS[cell], uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, cu + (u0 + uv.getX(i) * (u1 - u0)) * .499 + .0005, cv + (v0 + uv.getY(i) * (v1 - v0)) * .499 + .0005);
+    return g;
+  }
+  const tint = (g, f) => { const pa = g.attributes.position, col = new Float32Array(pa.count * 3); for (let i = 0; i < pa.count; i++) col.set(f(pa.getX(i), pa.getY(i), pa.getZ(i)), i * 3); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); return g; };
+  const flat = g => (g.index ? g.toNonIndexed() : g);
+  function limb(r0, r1, from, to, seg = 6) {                        // a trunk or branch between two points, bark-textured
+    const d = to.clone().sub(from), h = d.length();
+    const g = cellUV(new THREE.CylinderGeometry(r1, r0, h, seg, 1, true), 'bark', 0, 1, 0, Math.min(1, h / 3));
+    g.translate(0, h / 2, 0); g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UPV, d.normalize())); g.translate(from.x, from.y, from.z);
+    return tint(flat(g), () => [.95, .95, .95]);
+  }
+  function crown(cell, n, c, rx, ry, size, seed) {                    // n leaf clumps (two crossed cards each) on an ellipsoid
+    const r = rng(seed), parts = [];
+    for (let i = 0; i < n; i++) {
+      const k = (i + .5) / n, phi = Math.acos(1 - 2 * k), th = PI * (1 + Math.sqrt(5)) * i;
+      const d = V(Math.sin(phi) * Math.cos(th), Math.cos(phi), Math.sin(phi) * Math.sin(th));
+      const rad = .42 + .58 * Math.sqrt(r()), pos = V(d.x * rx * rad, d.y * ry * rad, d.z * rx * rad).add(c), sz = size * (.8 + r() * .45);
+      const q1 = new THREE.Quaternion().setFromUnitVectors(ZV, d).premultiply(new THREE.Quaternion().setFromAxisAngle(d, r() * 2 * PI));
+      for (const q of [q1, q1.clone().multiply(new THREE.Quaternion().setFromAxisAngle(UPV, PI / 2))]) {
+        const g = cellUV(new THREE.PlaneGeometry(sz, sz), cell); g.applyQuaternion(q); g.translate(pos.x, pos.y, pos.z); parts.push(flat(g));
+      }
+    }
+    const g = mergeGeometries(parts), pa = g.attributes.position, nr = g.attributes.normal, v = V(0, 0, 0);
+    for (let i = 0; i < pa.count; i++) {                             // light falls on the crown as on a ball
+      v.set((pa.getX(i) - c.x) / rx, (pa.getY(i) - c.y) / ry, (pa.getZ(i) - c.z) / rx).normalize(); v.y += .25; v.normalize(); nr.setXYZ(i, v.x, v.y, v.z);
+    }
+    // lower and inner leaves darker (they get less light)
+    return tint(g, (x, y, z) => { const t = THREE.MathUtils.clamp((y - c.y) / ry * .5 + .5, 0, 1), o = Math.min(1, Math.hypot((x - c.x) / rx, (y - c.y) / ry, (z - c.z) / rx)); const sh = .5 + .32 * t + .22 * o; return [sh, sh, sh]; });
+  }
+  function frond(len, wid, az, lift, droop) {                         // one palm frond: a bent card from the crown outwards
+    const g = cellUV(new THREE.PlaneGeometry(len, wid, 6, 1), 'frond');
+    const pa = g.attributes.position, uv = g.attributes.uv;
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i) + len / 2, z = pa.getY(i);                 // x: 0 at the trunk .. len at the tip; the card lies flat
+      pa.setXYZ(i, x * Math.cos(lift), Math.sin(lift) * x - droop * x * x, z);
+      uv.setX(i, ATLAS.frond[0] + (1 - x / len) * .499 + .0005);       // the frond's stem is at the right of its cell
+    }
+    g.computeVertexNormals(); g.rotateY(az);
+    const nr = g.attributes.normal; for (let i = 0; i < nr.count; i++) nr.setXYZ(i, nr.getX(i) * .4, Math.abs(nr.getY(i)) + .6, nr.getZ(i) * .4);
+    const out = flat(g);
+    return tint(out, (x, y) => { const sh = .62 + .38 * THREE.MathUtils.clamp((y + 1.2) / 2.6, 0, 1); return [sh, sh, sh]; });
+  }
+  const treeNear = {
+    round: () => { const parts = [limb(.27, .17, V(0, 0, 0), V(0, 3.4, 0), 7)];
+      for (let i = 0; i < 4; i++) { const a = i * PI / 2 + .4; parts.push(limb(.13, .06, V(0, 3.1, 0), V(Math.cos(a) * 1.6, 5.2, Math.sin(a) * 1.6), 5)); }
+      parts.push(crown('compound', 34, V(0, 5.0, 0), 2.7, 2.15, 2.6, 21)); return mergeGeometries(parts); },
+    cone: () => mergeGeometries([limb(.2, .1, V(0, 0, 0), V(0, 7.6, 0), 6), crown('single', 30, V(0, 4.9, 0), 1.2, 3.7, 1.9, 22)]),
+    palm: () => { const parts = [limb(.29, .2, V(0, 0, 0), V(0, 7.7, 0), 8)];
+      for (let i = 0; i < 18; i++) { const top = i < 7; parts.push(frond(4.0, 2.1, i * 2.4 + (top ? .3 : 0), top ? .75 : .22, top ? .1 : .085).translate(0, 7.55, 0)); }
+      return mergeGeometries(parts); }
   };
+  const treeFar = {
+    round: () => mergeGeometries([plain(new THREE.CylinderGeometry(.15, .26, 3.4, 5).translate(0, 1.7, 0), '#5f4630'), shaded(new THREE.IcosahedronGeometry(1, 1).scale(2.75, 2.15, 2.75).translate(0, 5.0, 0), '#8aa152', '#3f5426')]),
+    cone: () => mergeGeometries([plain(new THREE.CylinderGeometry(.1, .18, 1.6, 5).translate(0, .8, 0), '#5d4029'), shaded(new THREE.IcosahedronGeometry(1, 1).scale(1.25, 3.7, 1.25).translate(0, 4.9, 0), '#62802e', '#2c4018')]),
+    palm: () => mergeGeometries([plain(new THREE.CylinderGeometry(.2, .28, 7.6, 5).translate(0, 3.8, 0), '#8a6b45'), shaded(new THREE.IcosahedronGeometry(1, 1).scale(3.0, .9, 3.0).translate(0, 7.3, 0), '#62853a', '#33501f')])
+  };
+  // level of detail: each item shows its `near` objects while the camera is within d metres of c, otherwise `far`
+  const lodItems = [];
+  const lodScale = () => (api.quality === 'high' ? 1.4 : api.quality === 'fast' ? .55 : 1) * (lowEnd ? .6 : 1);
+  function updateLod(force) {
+    const cp = camera.position, k = lodScale();
+    for (const it of lodItems) {
+      const dd = cp.distanceTo(it.c), lim = it.d * k, near = it.on ? dd < lim * 1.08 : dd < lim;
+      if (near === it.on && !force) continue;
+      it.on = near; for (const o of it.near) o.visible = near; for (const o of it.far) o.visible = !near;
+    }
+  }
   function buildInstances() {
-    const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .92 });
     const r = rng(5), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
     // nothing stands on a road: drop trees whose trunk and lamps whose pole fall on asphalt (median openings, junctions,
     // the narrow strips by the gate, bends where a carriageway line is a little off)
@@ -707,12 +826,29 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     for (const type of Object.keys(trees)) { const n0 = trees[type].length; trees[type] = trees[type].filter(t => !onAsphalt(t[0], -t[2], .4)); dropped += n0 - trees[type].length; }
     for (const kind of Object.keys(lamps)) { const n0 = lamps[kind].length; lamps[kind] = lamps[kind].filter(l => !onAsphalt(l[0], -l[2], .25)); dropped += n0 - lamps[kind].length; }
     api.furnitureOffRoad = dropped;
-    for (const type of Object.keys(trees)) {
-      const list = trees[type]; if (!list.length) continue;
-      const im = new THREE.InstancedMesh(treeGeo[type](), treeMat, list.length);
-      list.forEach((t, i) => { const sc = t[3] * (.85 + r() * .3); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 2 * PI); im.setMatrixAt(i, m4.compose(p.set(t[0], t[1], t[2]), q, s.set(sc, sc * (.9 + r() * .25), sc))); im.setColorAt(i, c.setHSL(.24 + r() * .1, .25, .78 + r() * .2)); });
-      im.castShadow = true; im.receiveShadow = true; scene.add(im);
+    // trees, instanced per 600 m patch, near and far versions (if the leaf texture did not load: far version only)
+    const near = M.foliageOk ? { round: treeNear.round(), cone: treeNear.cone(), palm: treeNear.palm() } : null;
+    const far = { round: treeFar.round(), cone: treeFar.cone(), palm: treeFar.palm() };
+    const PATCH = 600, patches = new Map();
+    for (const type of Object.keys(trees)) for (const t of trees[type]) {
+      const key = Math.floor(t[0] / PATCH) + ',' + Math.floor(t[2] / PATCH);
+      let pa = patches.get(key); if (!pa) patches.set(key, pa = { x: 0, y: 0, z: 0, n: 0, types: {} });
+      pa.x += t[0]; pa.y += t[1]; pa.z += t[2]; pa.n++; (pa.types[type] || (pa.types[type] = [])).push(t);
     }
+    for (const pa of patches.values()) {
+      const item = { c: new THREE.Vector3(pa.x / pa.n, pa.y / pa.n, pa.z / pa.n), near: [], far: [], d: 720, on: null };
+      for (const [type, list] of Object.entries(pa.types)) {
+        const inst = list.map(t => { const sc = t[3] * (.85 + r() * .3); q.setFromAxisAngle(UPV, r() * 2 * PI); return [m4.compose(p.set(t[0], t[1], t[2]), q, s.set(sc, sc * (.9 + r() * .25), sc)).clone(), c.setHSL(.24 + r() * .08, .22, .8 + r() * .18).clone()]; });
+        for (const lvl of near ? ['near', 'far'] : ['far']) {
+          const im = new THREE.InstancedMesh(lvl === 'near' ? near[type] : far[type], lvl === 'near' ? M.foliage : M.treeFar, list.length);
+          inst.forEach(([m, col], i) => { im.setMatrixAt(i, m); im.setColorAt(i, col); });
+          im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); scene.add(im);
+          item[lvl].push(im);
+        }
+      }
+      if (near) lodItems.push(item);
+    }
+    api.treePatches = patches.size;
     // a soft round shadow on the ground under every tree (the sun's shadow falls to one side; this grounds the trunk)
     const R = { round: 3.0, cone: 1.7, palm: 2.0 }, under = [];
     for (const type of Object.keys(trees)) for (const t of trees[type]) under.push([t, R[type]]);
@@ -1014,11 +1150,11 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     const night = api.time === 'night', eve = api.time === 'evening';
     SUN_DIR.copy(eve ? SUN_EVE : SUN_DAY); su.sunPosition.value.copy(SUN_DIR);       // evening: low sun, long shadows
     su.turbidity.value = eve ? 8 : 5.5; su.rayleigh.value = eve ? 2.4 : 1.25;
-    hemi.intensity = night ? .16 : eve ? .62 : 1.05; hemi.color.set(night ? '#5a6fa8' : eve ? '#ffd9b0' : '#d6e9ff'); hemi.groundColor.set(night ? '#1d1a14' : eve ? '#5a4a3a' : '#6b5b3b');
+    hemi.intensity = night ? .14 : eve ? .36 : .62; hemi.color.set(night ? '#5a6fa8' : eve ? '#ffd9b0' : '#fff3e0'); hemi.groundColor.set(night ? '#1d1a14' : eve ? '#5a4a3a' : '#6b5b3b');
     sun.intensity = night ? .32 : eve ? 2.5 : 2.7; sun.color.set(night ? '#9fb4ff' : eve ? '#ffb26b' : '#fff0d4');
-    scene.environmentIntensity = night ? .06 : eve ? .32 : .45;
+    scene.environmentIntensity = night ? .6 : eve ? .55 : .55;   // the sky is blue: more would turn everything cold
     skyU.top.value.set(night ? '#060b1a' : '#5d93d6'); skyU.hor.value.set(night ? '#1b2440' : '#dbe8f2'); skyU.bot.value.set(night ? '#0d0f14' : '#c9c3b1');
-    scene.fog.color.set(night ? '#141b30' : eve ? '#e9c9a6' : '#dbe8f2');
+    scene.fog.color.set(night ? '#141b30' : eve ? '#e9c9a6' : '#dbe8f2'); scene.fog.density = night ? 7e-5 : eve ? 1.3e-4 : 1e-4;
     stars.visible = night; sky.visible = night; physSky.visible = !night;
     for (const m of M.night) m.emissiveIntensity = night ? (m === M.lampOn ? 4 : 1.3) : 0;
     for (const m of nightSigns) m.emissiveIntensity = night ? .7 : 0;
@@ -1026,6 +1162,8 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     renderer.toneMappingExposure = night ? 1.1 : eve ? .92 : 1.0;
     for (const m of M.night) if (eve) m.emissiveIntensity = m === M.lampOn ? 1.6 : .35;
     if (night) ensureComposer();
+    if (bloom) bloom.enabled = night;
+    setSkyLight(night, eve);
   }
   // ---- streamed satellite ground (Esri World Imagery, quadtree level of detail) -----------
   const TILE_URL = (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
@@ -1211,6 +1349,26 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   }
   new ResizeObserver(resize).observe(el); resize();
   let last = performance.now(), lastMini = 0, shadowD = 0, lastTiles = 0;
+  // graphics quality. 'auto': ambient occlusion goes on once the device draws a frame in under 20 ms without it
+  // (measured for 2.5 s after loading) and off again if frames then take over 34 ms. 'high': on, and details drawn
+  // further out. 'fast': off, details only close by. Weak devices (lowEnd) never switch it on by themselves.
+  api.quality = ['auto', 'high', 'fast'].includes(opts.quality) ? opts.quality : 'auto';
+  let frameMs = 16, autoState = 'wait', autoT = 0;
+  function autoQuality(now, ms) {
+    frameMs += (ms - frameMs) * .05;
+    if (api.quality !== 'auto' || aoFailed || lowEnd) return;
+    if (autoState === 'wait') { if (built && frames > 90) { autoState = 'measure'; autoT = now; } return; }
+    if (autoState === 'measure' && now - autoT > 2500) { autoState = frameMs < 20 ? 'on' : 'off'; autoT = now; if (autoState === 'on') setAO(true); return; }
+    if (autoState === 'on' && aoOn && now - autoT > 4000 && frameMs > 34) { autoState = 'off'; setAO(false); }
+  }
+  function setQuality(q) {
+    api.quality = ['auto', 'high', 'fast'].includes(q) ? q : 'auto';
+    if (api.quality === 'high') setAO(true);
+    else { setAO(false); if (api.quality === 'auto') { autoState = built ? 'measure' : 'wait'; autoT = performance.now(); frameMs = 16; } }
+    updateLod(true);
+    return api.quality;
+  }
+  if (api.quality === 'high') setTimeout(() => setAO(true), 0);
   function loop(now) {
     requestAnimationFrame(loop);
     if (document.hidden) return;
@@ -1233,14 +1391,15 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       updateLabels(now);
       if (mini && now - lastMini > 90) { lastMini = now; mini(); }
     }
-    if (api.time === 'night' && composer) composer.render(); else renderer.render(scene, camera);
+    updateLod(); autoQuality(now, dt * 1000);
+    if (composer && (aoOn || api.time === 'night')) composer.render(); else renderer.render(scene, camera);
     labelR.render(scene, camera);
     frames++;
   }
   requestAnimationFrame(loop);
 
   Object.assign(api, {
-    setLayer, setTime, setGround, setLabels, setFilter, blockStats, select, selectLandmark, clearSelection, reset, flyToBlock, search, flyTo: (e, n, dist, polar, az, dur) => flyTo(new THREE.Vector3(e, 0, -n), dist, polar, az, dur),
+    setLayer, setTime, setGround, setLabels, setFilter, setQuality, aoActive: () => aoOn, blockStats, select, selectLandmark, clearSelection, reset, flyToBlock, search, flyTo: (e, n, dist, polar, az, dur) => flyTo(new THREE.Vector3(e, 0, -n), dist, polar, az, dur),
     turn: (deg, tilt = 0) => turnBy(deg * PI / 180, tilt * PI / 180), zoomIn: () => zoomBy(1.7), zoomOut: () => zoomBy(1 / 1.7),
     get: id => { const p = byId.get(+id); return p ? publicProps(p) : null; },
     getLandmark: id => { const lm = lmById.get(+id); return lm ? publicLm(lm) : null; },
