@@ -538,6 +538,32 @@ EMAP_SITE_COLOURS = [
 ]
 
 
+DIS_GREEN = (120, 174, 36)   # the newer plan paints dispensary sites this green and prints DIS on them
+# DIS sites the plan reader merges into a neighbouring site (corners measured on the plan's zoom-19 tiles, lon, lat):
+# Block C's, between the primary school and the commercial area of the block centre (about 21 x 27 m)
+DIS_MEASURED = {"C": [(73.08635, 31.530252), (73.08614, 31.530416), (73.08629, 31.530558), (73.0865, 31.530394)]}
+
+
+def emap_dispensaries(emap, others, named):
+    """the newer plan's dispensary sites (green, printed DIS), placed where the plan has them. The older block maps put
+    some dispensaries where the newer plan has plots or a street (Dispensary C was left as a sliver and dropped).
+    others: polygons of the other sites (a DIS site mostly under one of them is skipped); named: (centroid, block) of
+    the older maps' sites; a dispensary sits in its block's central complex, so most of its five nearest sites share its block."""
+    out = []
+    for pg, rgb, area in emap.sites():
+        if area < 150 or sum(abs(a - b) for a, b in zip(rgb, DIS_GREEN)) >= 30:
+            continue
+        if others is not None and others.intersection(pg).area > 0.3 * pg.area:
+            continue
+        c = pg.representative_point()
+        near = sorted(named, key=lambda t: t[0].distance(c))[:5]           # the block of most of the five nearest sites
+        blk = Counter(b for _, b in near).most_common(1)[0][0] if near else None
+        out.append({"kind": "dispensary", "name": f"Dispensary ({blk})" if blk else "Dispensary", "block": blk,
+                    "poly": clean(pg.simplify(0.4)), "kanal": round(pg.area / 505.857, 2),
+                    "source": "Newer FDA City plan (emap.pk): the site printed DIS"})
+    return out
+
+
 def emap_zones(emap, block_x, old_env):
     """Block X sites of the newer plan, as zone entries with their polygon (local metres)"""
     out = []
@@ -1500,6 +1526,21 @@ def main():
     zones = [dict(z, poly=plan.geom(z)) for z in feats["zones"] if not (emap is not None and z["kind"] in NE_OLD)]
     if emap is not None:
         zones += emap_zones(emap, block_x, old_env)
+        # dispensaries where the newer plan has them; they replace the older block maps' dispensary of that block
+        named = [(plan.geom(f).centroid, f["block"]) for f in feats["facilities"] + feats["parks"]
+                 if f.get("block") and f["block"] != "X" and f.get("kind") != "dispensary"]
+        others = unary_union([z["poly"] for z in zones] + [plan.geom(f) for f in feats["facilities"] if f.get("kind") != "dispensary"])
+        dis = [d for d in emap_dispensaries(emap, others, named) if d["block"] and d["block"] != "X"]
+        for blk_, ring in DIS_MEASURED.items():
+            if not any(d["block"] == blk_ for d in dis):
+                pg_ = Polygon([xy(*q) for q in ring])
+                dis.append({"kind": "dispensary", "name": f"Dispensary ({blk_})", "block": blk_, "poly": pg_, "kanal": round(pg_.area / 505.857, 2),
+                            "source": "Newer FDA City plan (emap.pk): the site printed DIS, measured on the plan"})
+        if dis:
+            got = {d["block"] for d in dis}
+            feats["facilities"] = [f for f in feats["facilities"] if not (f.get("kind") == "dispensary" and f.get("block") in got)]
+            zones = dis + zones          # first, so an older outline drawn over the DIS site (Commercial Centre C) takes the rest
+            print("dispensaries from the newer plan:", [(d["name"], d["kanal"]) for d in dis])
     inside_zones = unary_union([z["poly"] for z in zones if not z.get("outside")])
 
     cells = emap.cells() if emap is not None else load_cells()
@@ -2623,3 +2664,7 @@ def preview(path, outline, P, landmarks, plot_feats, road_feats, nala, plan, gre
 
 if __name__ == "__main__":
     main()
+    # the small plot files the React pages read (search, plot details, dashboards)
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location("make_index", os.path.join(os.path.dirname(os.path.abspath(__file__)), "make_index.py"))
+    _mi = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_mi); _mi.main()

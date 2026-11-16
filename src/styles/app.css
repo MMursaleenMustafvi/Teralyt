@@ -1,0 +1,53 @@
+/* React pages: additions to style.css (shared look of the original pages) */
+.sp{width:30px;height:30px;border:3px solid rgba(255,255,255,.18);border-top-color:var(--g2);border-radius:50%;animation:spin 1s linear infinite;display:block;margin:0 auto 12px}@keyframes spin{to{transform:rotate(360deg)}}
+.loadbox{display:flex;align-items:center;gap:14px;padding:28px 6px;color:var(--mut)}.loadbox .sp{margin:0;width:24px;height:24px}
+.note.err{background:rgba(201,87,63,.14);border-color:rgba(201,87,63,.45);color:var(--cr)}
+.btn.sm{padding:7px 14px;font-size:13px}.btn:disabled{opacity:.5;cursor:default;transform:none;filter:none}
+.small{font-size:12.5px}.warn{color:#f0c26a}
+.gbtn{display:flex;gap:8px;flex-shrink:0}
+.pgw.wide .pg{max-width:1500px}
+.pager{display:flex;align-items:center;gap:14px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:4px 14px;margin:14px 0 4px}.filters input,.filters select{margin:5px 0 8px;padding:9px 12px;font-size:14px}
+.tblw{overflow-x:auto;margin:0 -4px;padding:0 4px}
+.tbl{width:100%}.tbl td{padding:10px 8px}.tbl th{text-align:left;padding:8px;border-bottom:1px solid var(--ln)}
+.tbl .acts{font-size:13.5px}.tbl tr.removed td:not(.acts){opacity:.45;text-decoration:line-through}
+.tbl.ds td{white-space:normal;vertical-align:top}.tbl.ds td:first-child{min-width:190px}.tbl.ds td:nth-child(2){min-width:220px;font-size:13px}
+.rescards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin:14px 0}
+.rc{display:flex;flex-direction:column;gap:4px;text-decoration:none;color:var(--tx);transition:.15s}.rc:hover{border-color:var(--g2)}.rc b{color:var(--cr)}.rc .go{color:var(--g2);font-size:13px;margin-top:6px}
+.chip3{display:inline-block;background:rgba(255,255,255,.07);border:1px solid var(--ln);color:var(--tx);border-radius:99px;padding:7px 14px;font-weight:600;font-size:13px;text-decoration:none;transition:.15s}.chip3:hover{border-color:var(--g2);color:var(--g2)}
+.chiprow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.ferr{color:#f2917b;font-size:13.5px;margin:-6px 0 12px;font-weight:600}.fok{color:#8be0a0;font-size:13.5px;margin:4px 0 12px;font-weight:600}
+.af .ferr{color:#b23a22}.af .fok{color:#1f6b3a}
+.pwrow{position:relative}.pweye{position:absolute;right:10px;top:50%;transform:translateY(-62%);background:none;border:0;color:#7a6a4f;font:600 12.5px inherit;font-family:inherit;cursor:pointer}
+.pws{font-size:12.5px;margin:-8px 0 12px;font-weight:600}.pws.weak{color:#b23a22}.pws.good{color:#9a6b12}.pws.strong{color:#1f6b3a}
+.chk{display:flex;gap:9px;align-items:flex-start;font-size:13px;font-weight:500;margin:4px 0 12px}.chk input{width:auto;margin:3px 0 0;flex-shrink:0}
+.demo{margin-top:12px;font-size:13px;border:1px dashed #cdb98f;border-radius:14px;padding:12px 14px;color:var(--ink)}.demo code{background:rgba(0,0,0,.07);padding:1px 6px;border-radius:6px}
+.demob{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.af .demo .btn.o{color:var(--ink);border-color:#cdb98f}
+.phead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:6px}.pacts{display:flex;gap:8px;flex-wrap:wrap}
+.pgrid{grid-template-columns:minmax(0,1.45fr) minmax(280px,1fr);margin-bottom:18px}@media(max-width:900px){.pgrid{grid-template-columns:1fr}}
+.mapcard{padding:12px}.plotmap{width:100%;height:auto;border-radius:16px;display:block}
+.samplebar{background:rgba(227,169,58,.13);border:1px solid rgba(227,169,58,.4);color:#f3dca8;border-radius:12px;padding:9px 13px;font-size:13px;margin:8px 0 6px}
+.sample{font-size:12.5px;color:#f0c26a !important}
+.tchart{width:100%;height:auto;display:block}
+.fst{display:flex;gap:22px;flex-wrap:wrap;margin:10px 0 12px}.fst b{display:block;color:var(--cr);font-size:20px}.fst span{font-size:12.5px;color:var(--mut)}
+.bars2{display:flex;flex-direction:column;gap:6px;margin:10px 0}.bars2 a{display:grid;grid-template-columns:70px minmax(0,1fr) 56px 110px;align-items:center;gap:10px;color:var(--tx);text-decoration:none;padding:4px 6px;border-radius:10px;font-size:13.5px}
+.bars2 a:hover,.bars2 a.on{background:rgba(255,255,255,.06)}.bars2 i{height:10px;border-radius:5px;background:var(--g2);display:block;max-width:100%}.bars2 b{color:var(--cr)}
+.heroimg{position:absolute;inset:4px;width:calc(100% - 8px);height:calc(100% - 8px);object-fit:cover;border-radius:24px}
+.v3.m{overflow:hidden}.layerimg{width:100%;height:100%;object-fit:cover;border-radius:24px;display:block;animation:fadein .5s}@keyframes fadein{from{opacity:0}to{opacity:1}}
+.chips .chip3{font-size:13px}
+.dimg{position:relative;display:block;min-height:260px}.dimg img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.dimg span{position:absolute;left:14px;bottom:14px;background:rgba(20,14,9,.85);color:var(--cr);padding:8px 14px;border-radius:99px;font-weight:600;font-size:13.5px}
+.curst{margin:0 0 12px;padding:10px 12px;border:1px solid var(--ln);border-radius:12px;font-size:14px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.plain{list-style:none;padding:0;margin:8px 0 14px}.plain li{margin:6px 0}
+select.mini{padding:5px 8px;font-size:12.5px;margin:0;width:auto;border-radius:10px}
+.st-a{color:#8be0a0}.st-r{color:#f0c26a}.st-s{color:#f2917b}
+.recgrid{grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr)}@media(max-width:900px){.recgrid{grid-template-columns:1fr}}
+textarea{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+.um .menu small{color:var(--mut)}
+@media(max-width:900px),(max-height:560px){.unm{display:none}.top .sw{max-width:none}}
+@media(max-width:560px){.gbtn .btn.o{display:none}.phead .pacts .btn{padding:9px 14px;font-size:13.5px}.bars2 a{grid-template-columns:62px minmax(0,1fr) 52px}.bars2 a small{display:none}}
+/* readability over the bright animated background */
+.pg>h1,.phead h1{text-shadow:0 2px 14px rgba(0,0,0,.55)}
+.pg>p.mut,.phead p.mut,.pg>.mut{color:#efe4cc;text-shadow:0 1px 8px rgba(0,0,0,.75)}
+.pg .btn.o,.pacts .btn.o{background:rgba(20,14,9,.55);backdrop-filter:blur(8px);color:var(--cr)}
+.pgrid{align-items:start}

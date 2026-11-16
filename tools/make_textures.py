@@ -1,4 +1,4 @@
-"""Builds the photo textures in assets/tex/ from ambientCG (CC0) material packs.
+"""Builds the photo textures in public/tex/ from ambientCG (CC0) material packs.
 
     python -I tools/make_textures.py
 
@@ -12,7 +12,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, 'tools', 'source', 'cache', 'ambientcg')
-OUT = os.path.join(ROOT, 'assets', 'tex')
+OUT = os.path.join(ROOT, 'public', 'tex')
 SIZE = 512
 SPEC = {  # file: (ambientCG asset, high-pass sigma in px (0 = keep), grain gain)
     'asphalt': ('Asphalt025C', 14, 2.4), 'grass': ('Grass004', 28, 1.1), 'soil': ('Ground103', 28, 1.0),

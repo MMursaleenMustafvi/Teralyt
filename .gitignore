@@ -1,5 +1,5 @@
-# Cesium ion token and other local secrets
-assets/config.js
+# Cesium ion token and other local secrets (public/config.js sets window.TERRALYT_CONFIG)
+public/config.js
 
 # OS / editor noise
 .DS_Store
@@ -9,3 +9,8 @@ __pycache__/
 
 # downloaded source images (official plan); fetched by tools/make_data.py
 tools/source/cache/
+
+# React / Vite
+node_modules/
+dist/
+.env.local
