@@ -14,7 +14,8 @@ const LG = {
   sat: [['#9c8a72', 'Built'], ['#ddd2b2', 'Vacant']]
 };
 const LAYERS = [['real', 'Realistic'], ['cls', 'Development'], ['stat', 'Plot status'], ['sat', 'Built / vacant'], ['size', 'Plot size']];
-const TIMES = ['day', 'evening', 'night'], TLAB = { day: 'Day', evening: 'Evening', night: 'Night' };
+const TIMES = ['day', 'evening', 'night'], TLAB = { day: 'Day', evening: 'Evening', night: 'Night' }, TICON = { day: '☀', evening: '🌇', night: '🌙' };
+const BLOCKS = ['A', 'B', 'C', 'D', 'E', 'F', 'X'];
 const QLAB = { auto: 'Auto', high: 'High', fast: 'Fast' };
 const QTIP = { auto: 'Auto: soft shading in corners (ambient occlusion) when this device is fast enough. Click for High', high: 'High: ambient occlusion on, details drawn further out. Click for Fast', fast: 'Fast: no ambient occlusion, details only close by. Click for Auto' };
 const SIZES = [['5 Marla', '#8fd16a'], ['10 Marla', '#ee8fb8'], ['20 Marla', '#7fa6e6'], ['Commercial', '#f0a040']], STS = ['Available', 'Reserved', 'Sold', 'Unknown'];
@@ -171,7 +172,7 @@ export default function MapPage() {
     else { const m = modelRef.current; status(m.rendered() ? 'ready' : 'loading', 'Building 3D model…'); setTimeout(() => m.resize(), 30); setPanel(null); }
   }
   const pickLayer = l => { setLayer(l); modelRef.current.setLayer(l); if (earthRef.current) earthRef.current.setLayer(l === 'real' || l === 'size' ? 'cls' : l); };
-  const nextTime = () => { const t = TIMES[(TIMES.indexOf(time) + 1) % 3]; modelRef.current.setTime(t); setTimeS(t); };
+  const pickTime = t => { if (t === time || !modelRef.current) return; modelRef.current.setTime(t); setTimeS(t); };
   const toggleGround = async () => { const g = await modelRef.current.setGround(ground !== 'satellite' ? 'satellite' : 'plan'); setGround(g); };
   const toggleLabels = () => { modelRef.current.setLabels(!labels); setLabels(!labels); };
   const nextQuality = () => { const order = ['auto', 'high', 'fast'], n = order[(order.indexOf(quality) + 1) % 3]; setQuality(modelRef.current.setQuality(n)); };
@@ -199,6 +200,7 @@ export default function MapPage() {
   }, []);
   // search inside the map (its own plots and facilities)
   const doSearch = v => { setMq(v); const a = active(); if (!a || !a.plots || !a.plots.length || !v.trim()) { setRes(null); return; } setRes(a.search(v.trim())); };
+  const jumpBlock = b => { const a = active(); if (!a) return; a.flyToBlock(b); if (a === modelRef.current) setPanel({ kind: 'block', b: modelRef.current.blockStats(b) }); };
   const goRes = r => { setRes(null); const a = active(); if (r.id != null) a.select(r.id); else if (r.lm != null && a.selectLandmark) a.selectLandmark(r.lm); else if (r.block) a.flyToBlock(r.block); };
 
   const legKey = view === 'earth' && (layer === 'real' || layer === 'size') ? 'cls' : layer;
@@ -211,6 +213,7 @@ export default function MapPage() {
   );
   const side = (
     <div className={'card' + (panel ? ' sel' : '')} id="side">
+      <div className="jb"><span>Jump to block</span><div>{BLOCKS.map(b => <button key={b} className={panel && panel.kind === 'block' && panel.b && panel.b.block === b ? 'on' : ''} title={'Fly to Block ' + b + ' and show its figures'} onClick={() => jumpBlock(b)}>{b}</button>)}</div></div>
       {!panel && <Idle model={modelRef.current} view={view} ready={ready} />}
       {panel && panel.kind === 'pick' && <Details p={panel.p} />}
       {panel && panel.kind === 'block' && <BlockPanel b={panel.b} model={modelRef.current} onRefresh={() => bump(x => x + 1)} />}
@@ -225,7 +228,7 @@ export default function MapPage() {
         {LAYERS.map(([k, t]) => <button key={k} className={'btn ' + (layer === k ? 'act' : 'o')} onClick={() => pickLayer(k)}>{t}</button>)}
         <span className="sep" />
         {view === 'model' && <>
-          <button className={'btn ' + (time === 'day' ? 'o' : 'act')} title={`Now: ${TLAB[time]}. Click for ${TLAB[TIMES[(TIMES.indexOf(time) + 1) % 3]].toLowerCase()}`} onClick={nextTime}>{TLAB[TIMES[(TIMES.indexOf(time) + 1) % 3]]}</button>
+          <div className="seg" role="radiogroup" aria-label="Time of day">{TIMES.map(t => <button key={t} role="radio" aria-checked={time === t} className={time === t ? 'on' : ''} title={'Show the society ' + (t === 'day' ? 'by day' : 'in the ' + t)} onClick={() => pickTime(t)}>{TICON[t]} {TLAB[t]}</button>)}</div>
           <button className={'btn ' + (ground === 'satellite' ? 'act' : 'o')} title="Show today's satellite photo under the plan" onClick={toggleGround}>{ground === 'satellite' ? '3D model ground' : 'Satellite photo'}</button>
           <button className={'btn ' + (touring ? 'act' : 'o')} title="Fly through the main places of FDA City" onClick={runTour}>{touring ? '■ Stop tour' : '▶ Tour'}</button>
           <button className={'btn ' + (labels ? 'o' : 'act')} onClick={toggleLabels}>{labels ? 'Labels on' : 'Labels off'}</button>
@@ -235,7 +238,6 @@ export default function MapPage() {
         <button className="btn o" aria-label="Zoom in" onClick={() => active().zoomIn()}>+</button><button className="btn o" aria-label="Zoom out" onClick={() => active().zoomOut()}>−</button>
         {!fs && searchBox}
       </div>
-      <div className="blk">Jump to block {['A', 'B', 'C', 'D', 'E', 'F', 'X'].map(b => <button key={b} className="btn o" onClick={() => { active().flyToBlock(b); if (active() === modelRef.current) setPanel({ kind: 'block', b: modelRef.current.blockStats(b) }); }}>{b}</button>)}</div>
       {view === 'model' && <div className="flt">Show {SIZES.map(([s, c]) => <button key={s} className={'chip2' + (sizes.includes(s) ? ' on' : '')} onClick={() => toggleSize(s)}><i style={{ background: c }} />{s}</button>)}<span className="sep" />{STS.map(s => <button key={s} className={'chip2' + (stats.includes(s) ? ' on' : '')} onClick={() => toggleSt(s)}>{s}</button>)}<span>{count}</span></div>}
       <div className="grid mapgrid">
         <div className={'stage' + (fs ? ' fs' : '') + (pseudo ? ' pseudo' : '')} id="stage" ref={stageRef}>

@@ -306,7 +306,22 @@ export function Society3D(el, opts = {}) {
     // painted kerbs around medians, roundabout islands and boulevard strips
     { const rings = [];
       for (const f of land.features) if (isLandF(f) && ['median', 'island', 'strip'].includes(f.properties.kind)) for (const pr of polysOf(f.geometry)) for (const rg of pr) rings.push(ringPlan(rg));
-      layers.stylised.push(addMesh(kerbGeometry(rings, Y.road, .3, .32), M.kerb, { cast: false })); }
+      layers.stylised.push(addMesh(kerbGeometry(rings, Y.road, .3, .32), M.kerb, { cast: false }));
+      for (const f of land.features) {
+        const pr = f.properties; if (pr.use !== 'centre median' || !pr.axis) continue;
+        const wide = (pr.width_m || 1.6) >= 3;
+        for (const ax of pr.axis) {
+          const pts = ax.map(c => P(c[0], c[1])); let acc = 0;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const a = pts[i], b = pts[i + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            for (let s = (wide ? 11 : 13) - acc; s < L; s += wide ? 22 : 26) {
+              const x = a[0] + (b[0] - a[0]) * s / L, y = a[1] + (b[1] - a[1]) * s / L;
+              if (wide) trees.palm.push([x, Y.median, -y, .95]); else trees.round.push([x, Y.median, -y, .55]);
+            }
+            acc = (acc + L) % (wide ? 22 : 26);
+          }
+        }
+      } }
 const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     const parcelLike = f => f.properties.kind === 'parcel' || f.properties.kind === 'greenbelt';
     layers.stylised.push(addMesh(extrudeGeom(land.features, Y.road, Y.curb - Y.road, f => isLand(f) && parcelLike(f)), M.sidewalk));
@@ -379,6 +394,12 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
   }
 
   // ---- streetscape -----------------------------------------------------------------
+  // Signed offsets (+ = left of the line's direction) of the inner and outer edge of one carriageway of a dual road.
+  // Traffic keeps left, so the centre median lies on the right; median_in is the distance from the line to its edge.
+  function carriageEdges(p) {
+    const w = p.width_m || 10;
+    return p.median_in ? [-Math.min(p.median_in, w / 2 + 1.5), w / 2] : [-w / 2, w / 2];
+  }
   function buildStreetscape(features) {
     const quads = [];
     const lines = [];
@@ -420,9 +441,12 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     for (const l of lines) {
       const w = l.p.width_m || 12, cls = l.p.class;
       if (cls === 'service') {
-        // service roads carry no painted lines on site (Google satellite, zoom 20)
-      } else if (cls === 'road110' || cls === 'divider_half') {
+        // one-way, two lanes: dashed lane line and solid edge lines, like the main carriageway beside it
         stripe(l.pts, 0, 3, 6, .13); stripe(l.pts, w / 2 - .35, 1, 0, .16); stripe(l.pts, -(w / 2 - .35), 1, 0, .16);
+      } else if (cls === 'road110' || cls === 'divider_half') {
+        // one carriageway of a dual road; the centre median lies on its right (traffic keeps left), median_in metres away
+        const [inner, outer] = carriageEdges(l.p), c = (inner + outer) / 2;
+        stripe(l.pts, c, 3, 6, .13); stripe(l.pts, outer - .35, 1, 0, .16); stripe(l.pts, inner + .35, 1, 0, .16);
         along(l.pts, 38, 9, (x, y, ux, uy, t) => { const off = w / 2 + 1.2, px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-ux, uy) + PI]); });
         along(l.pts, 19, 4, (x, y, ux, uy, t) => { const off = w / 2 + 2.6, px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 19) % 2) trees.round.push([px, Y.verge, -py, .85]); });
       } else if (cls === 'road85') {
@@ -430,8 +454,10 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         along(l.pts, 38, 9, (x, y, ux, uy, t) => { const s = Math.round(t / 38) % 2 ? 1 : -1, off = s * (w / 2 + 1.2), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); });
         along(l.pts, 18, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 3.5), px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 18) % 2) trees.round.push([px, Y.verge, -py, .85]); } });
       } else if (cls === 'divider') {
-        stripe(l.pts, .18, 1, 0, .12); stripe(l.pts, -.18, 1, 0, .12);               // double centre line
-        stripe(l.pts, w / 4, 3, 6, .14); stripe(l.pts, -w / 4, 3, 6, .14);           // four lanes
+        // 85 ft road mapped as one line: a kerbed centre median on the line, two lanes each way
+        const mi = l.p.median_in || 0, lane = (mi + w / 2) / 2;
+        stripe(l.pts, mi + .3, 1, 0, .14); stripe(l.pts, -(mi + .3), 1, 0, .14);     // inner edge lines beside the median
+        stripe(l.pts, lane, 3, 6, .14); stripe(l.pts, -lane, 3, 6, .14);             // lane lines
         stripe(l.pts, w / 2 - .4, 1, 0, .18); stripe(l.pts, -(w / 2 - .4), 1, 0, .18);
         along(l.pts, 36, 8, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 1.4), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); } });
         along(l.pts, 18, 0, (x, y, ux, uy, t) => { for (const s of [1, -1]) { const off = s * (w / 2 + 2.8), px = x - uy * off, py = y + ux * off; if (inB(px, py) && Math.round(t / 18) % 3) trees.round.push([px, Y.verge, -py, .85]); } });
@@ -962,7 +988,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       const pr = f.properties; if (!['main', 'divider', 'divider_half', 'road110', 'road85', 'service', 'collector'].includes(pr.class)) continue;
       const pts = f.geometry.coordinates.map(c => P(c[0], c[1])); let len = 0; const cum = [0];
       for (let i = 1; i < pts.length; i++) { len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); cum.push(len); }
-      if (len > 120) paths.push({ pts, cum, len, w: pr.width_m || 12, main: pr.class === 'main', oneway: !!pr.oneway });
+      if (len > 120) paths.push({ pts, cum, len, w: pr.width_m || 12, main: pr.class === 'main', oneway: !!pr.oneway, edges: pr.oneway ? carriageEdges(pr) : null });
     }
     const r = rng(11), cars = [];
     for (const pa of paths) {
@@ -970,7 +996,10 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       for (let i = 0; i < n; i++) {
         const dir = (pa.main || pa.oneway) ? 1 : (r() < .5 ? 1 : -1);
         // two lanes each way on the main road; on two-way roads traffic keeps to the left, as in Pakistan
-        const lane = (pa.main || pa.oneway) ? (r() < .5 ? -1 : 1) * pa.w / 4 : dir * pa.w / 4;
+        // (one-way: the two lanes between the inner and outer edge of the carriageway; a dual road's 85 ft halves are
+        // not centred on their line, the centre median takes a strip on the right)
+        const lane = pa.edges ? (pa.edges[0] + pa.edges[1]) / 2 + (r() < .5 ? -1 : 1) * (pa.edges[1] - pa.edges[0]) / 4
+          : (pa.main || pa.oneway) ? (r() < .5 ? -1 : 1) * pa.w / 4 : dir * pa.w / 4;
         cars.push({ pa, s: r() * pa.len, v: (pa.main ? 11 : 8) + r() * 5, dir, lane });
       }
     }

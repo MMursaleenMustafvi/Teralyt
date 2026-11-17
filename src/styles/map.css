@@ -11,7 +11,17 @@
 .attr{position:absolute;left:14px;bottom:52px;z-index:4;font-size:11px;color:#e8dfc8;background:rgba(20,14,9,.7);padding:3px 8px;border-radius:8px}
 .vt{display:inline-flex;gap:4px;padding:4px;border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--ln);margin-bottom:12px;flex-wrap:wrap}.vt button{border:0;background:none;color:var(--tx);font:600 13.5px inherit;font-family:inherit;padding:8px 16px;border-radius:99px;cursor:pointer}.vt button.act{background:linear-gradient(135deg,#3a8a55,#1f5a38);color:var(--cr)}
 .tools .sep{width:1px;background:var(--ln);margin:2px 4px}.tools .sw{margin:0;flex:1;min-width:230px}.tools .sw input{margin:0;padding:9px 16px;border-radius:99px;font-size:14px}
-.blk{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-6px 0 14px;font-size:13px;color:var(--mut)}.blk .btn{padding:6px 12px;font-size:12.5px}
+/* time of day: one segmented control (Day / Evening / Night) */
+.seg{display:inline-flex;background:rgba(20,16,10,.55);border:1px solid var(--ln);border-radius:99px;padding:3px;gap:2px}
+.seg button{background:none;border:0;color:var(--tx);font:600 13px inherit;font-family:inherit;padding:6px 13px;border-radius:99px;cursor:pointer;white-space:nowrap}
+.seg button:hover{background:rgba(255,255,255,.08)}.seg button.on{background:linear-gradient(135deg,#3a8a55,#1f5a38);color:var(--cr)}
+/* jump to block: at the top of the map's side panel */
+.jb{display:flex;flex-direction:column;gap:8px;padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid var(--ln)}
+.jb>span{font-size:12.5px;font-weight:600;color:var(--mut)}.jb>div{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.jb button{height:32px;border-radius:9px;border:1px solid var(--ln);background:rgba(255,255,255,.06);color:var(--tx);font:700 13px inherit;font-family:inherit;cursor:pointer}
+.jb button:hover{border-color:#7bd08b}.jb button.on{background:linear-gradient(135deg,#3a8a55,#1f5a38);border-color:transparent;color:var(--cr)}
+/* the filter row sits on the animated sky: keep its words readable */
+.flt{color:var(--tx)!important;font-weight:600;text-shadow:0 1px 3px rgba(0,0,0,.85)}.flt .chip2{text-shadow:none;background:rgba(20,16,10,.55)!important}
 .kv2{width:100%;min-width:0}.kv2 th{width:42%;font-weight:600;color:var(--mut);padding:8px 6px 8px 0;text-align:left;vertical-align:top}.kv2 td{padding:8px 0;white-space:normal}
 .prov{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--mut);margin-top:10px}.prov b{color:var(--cr);font-weight:600}
 .lmchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.lmchips button{background:rgba(255,255,255,.06);border:1px solid var(--ln);color:var(--tx);border-radius:99px;padding:6px 11px;font:600 12px inherit;font-family:inherit;cursor:pointer}.lmchips button:hover{border-color:var(--g2);color:var(--g2)}
