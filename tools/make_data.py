@@ -1463,6 +1463,46 @@ def main():
             if v[0] * w_[0] + v[1] * w_[1] < 0:
                 d["line"] = LineString(list(d["line"].coords)[::-1])
             d["oneway"] = True
+
+    # The two carriageways of a dual road each carry traffic one way; traffic keeps to the left (Pakistan), so the
+    # other carriageway lies on the driver's right. OpenStreetMap maps the 85 ft and boulevard halves as one-way
+    # lines already; the 110 ft road in Block A is mapped as two plain lines, turned here to the driving direction.
+    def twin_at(d, pool, p, reach=30.0):
+        best = None
+        du = direction_at(d["line"], p)
+        for e in pool:
+            if e is d:
+                continue
+            dist = e["line"].distance(p)
+            if dist > reach or dist < 2.0:
+                continue
+            q = e["line"].interpolate(e["line"].project(p))
+            de = direction_at(e["line"], q)
+            if abs(du[0] * de[0] + du[1] * de[1]) < 0.97:
+                continue
+            if best is None or dist < best[0]:
+                best = (dist, e, q, du)
+        return best
+
+    def twin_side(d, pool):
+        votes = []
+        for t in np.arange(10.0, max(d["line"].length - 10.0, 10.5), 12.0):
+            p = d["line"].interpolate(t)
+            tw = twin_at(d, pool, p)
+            if tw is not None:
+                _, _, q, du = tw
+                votes.append(1 if du[0] * (q.y - p.y) - du[1] * (q.x - p.x) > 0 else -1)
+        return (1 if sum(votes) > 0 else -1) if votes else 0
+
+    duals110 = [d for d in roads if d["cls"] == "road110"]
+    n_turned = 0
+    for d in duals110:
+        if twin_side(d, duals110) > 0:              # the other carriageway on the left: drive the other way
+            d["line"] = LineString(list(d["line"].coords)[::-1])
+            n_turned += 1
+        d["oneway"] = True
+    if duals110:
+        print(f"110 ft road: {len(duals110)} carriageways made one-way (keep left), {n_turned} turned")
     surf = surface(ROW)
     carriage = surface(WIDTH)
     reserve = unary_union([d["line"].buffer(RESERVE[d["cls"]], cap_style=2, join_style=2) for d in roads if d["cls"] in RESERVE])
@@ -1512,6 +1552,102 @@ def main():
             print(f"kerbed dividers between main carriageways and service roads: {len(polys(dividers))} pieces, "
                   f"{sum(q.length for q in polys(dividers)) / 2 / 1000:.1f} km")
 
+    # ---- centre medians of the dual roads ----------------------------------------------------
+    # Every dual road gets the same kerbed, planted centre median as the boulevard, open only where a street crosses
+    # it and at roundabouts. 85 ft roads mapped as two one-way lines (about 8 to 9 m apart; Google satellite shows a
+    # thin planted median): a 1.6 m median on the line between them. 85 ft roads mapped as one line: a 1.6 m median
+    # on that line. 110 ft road in Block A: the whole space between its two carriageways (about 5 m). The boulevard
+    # keeps the medians of the road network's faces (5 m, already complete).
+    MED_THIN = 1.6
+    cmed = None
+    med_runs = []                                   # (axis LineString, median polygon, typical width)
+
+    def med_polygon(run):
+        # a median of smoothly varying width along the run's axis (the gap of the 110 ft road changes along it)
+        xs = np.array([[x_, y_] for x_, y_, _ in run]); ws = np.array([w for _, _, w in run])
+        k = 7
+        ws = np.array([np.median(ws[max(0, i - k):i + k + 1]) for i in range(len(ws))])
+        sm = np.array([xs[max(0, i - 2):i + 3].mean(axis=0) for i in range(len(xs))])        # a straighter axis
+        left, right = [], []
+        for i in range(len(sm)):
+            a_, b_ = sm[max(0, i - 2)], sm[min(len(sm) - 1, i + 2)]
+            dx, dy = b_ - a_; L_ = math.hypot(dx, dy) or 1
+            nx, ny = -dy / L_, dx / L_
+            left.append((sm[i][0] + nx * ws[i] / 2, sm[i][1] + ny * ws[i] / 2))
+            right.append((sm[i][0] - nx * ws[i] / 2, sm[i][1] - ny * ws[i] / 2))
+        return LineString([tuple(q) for q in sm]), clean(Polygon(left + right[::-1])), float(np.median(ws))
+
+    for cls_ in ("divider_half", "road110"):
+        pool = [d for d in roads if d["cls"] == cls_]
+        for i_d, d in enumerate(pool):
+            run, gaps, widths_ = [], [], []
+
+            def flush_m():
+                if len(run) >= 4:
+                    med_runs.append(med_polygon(run))
+                run.clear()
+            for t in list(np.arange(0.0, d["line"].length, 1.5)) + [d["line"].length]:
+                p = d["line"].interpolate(t)
+                tw = twin_at(d, pool, p, reach=20.0 if cls_ == "divider_half" else 22.0)
+                if tw is None:
+                    flush_m()
+                    continue
+                dist, e, q, _ = tw
+                w_ = MED_THIN if cls_ == "divider_half" else max(MED_THIN, dist - WIDTH[cls_])
+                gaps.append(dist / 2 - w_ / 2)          # from this line to the median's edge
+                widths_.append(w_)
+                if pool.index(e) < i_d:                  # each median is laid out once, from one line of the pair
+                    flush_m()
+                    continue
+                run.append(((p.x + q.x) / 2, (p.y + q.y) / 2, w_))
+            flush_m()
+            if gaps:
+                d["median_in"] = round(float(np.median(gaps)), 2)
+                d["median_w"] = round(float(np.median(widths_)), 2)
+    for d in roads:
+        if d["cls"] == "divider":
+            med_runs.append((d["line"], d["line"].buffer(MED_THIN / 2, cap_style=2, join_style=2), MED_THIN))
+            d["median_in"], d["median_w"] = MED_THIN / 2, MED_THIN
+    if med_runs:
+        # a median opens where a street crosses the dual road (not where a street only joins from one side)
+        others = [d for d in roads if d["cls"] not in ("divider_half", "road110", "divider", "roundabout", "highway")]
+        merged = []
+        for cls_ in {d["cls"] for d in others}:
+            ls = [d["line"] for d in others if d["cls"] == cls_]
+            for l in lines_of(linemerge(MultiLineString(ls)) if len(ls) > 1 else ls[0]):
+                merged.append((l, WIDTH.get(cls_, 5.0)))
+        cuts = []
+        for axis, _, w_ in med_runs:
+            for l, wl in merged:
+                if not l.intersects(axis.buffer(w_ / 2 + 0.2)):
+                    continue
+                hit = l.intersection(axis)
+                for ip in (list(hit.geoms) if hasattr(hit, "geoms") else [hit]):
+                    if ip.is_empty or ip.geom_type != "Point":
+                        continue
+                    s_ = l.project(ip)
+                    if s_ < 4.0 or s_ > l.length - 4.0:
+                        continue                     # a street that ends on the median line: a T-junction, no opening
+                    a_, b_ = l.interpolate(s_ - 4.0), l.interpolate(s_ + 4.0)
+                    du = direction_at(axis, ip)
+                    sa = du[0] * (a_.y - ip.y) - du[1] * (a_.x - ip.x)
+                    sb = du[0] * (b_.y - ip.y) - du[1] * (b_.x - ip.x)
+                    if sa * sb < 0:
+                        cuts.append(l.buffer(wl / 2 + 1.5, cap_style=2).intersection(ip.buffer(25)))
+        rings_c = [c_.buffer(ro_ + 2.0, 64) for (c_, ri_, ro_) in ring_geo.values()]
+        body = unary_union([pg_ for _, pg_, _ in med_runs])
+        cut_u = unary_union(cuts + rings_c) if (cuts or rings_c) else None
+        cmed = clean(body.difference(cut_u) if cut_u is not None else body)
+        if dividers is not None:
+            cmed = clean(cmed.difference(dividers.buffer(0.1)))
+        # no stubs: a piece left between two openings, or shorter than 12 m, is dropped
+        cmed = clean(unary_union([q for q in polys(cmed) if q.area > 6 and not q.buffer(-0.3).is_empty
+                                  and max(math.dist(*list(q.minimum_rotated_rectangle.exterior.coords)[i:i + 2]) for i in range(2)) >= 12]))
+        med_axes = unary_union([axis for axis, _, _ in med_runs])
+        carriage = clean(carriage.difference(cmed))
+        print(f"centre medians of the dual roads: {len(polys(cmed))} pieces, {sum(q.length for q in polys(cmed)) / 2 / 1000:.1f} km, "
+              f"{len(cuts)} openings where a street crosses")
+
     # ---- faces of the road network ----------------------------------------------------------
     inner_lines = [d["line"].intersection(env.buffer(30)) for d in roads if d["cls"] != "highway"]
     noded = unary_union([l for l in inner_lines if not l.is_empty] + [LineString(env.exterior.coords), nala])
@@ -1551,6 +1687,8 @@ def main():
     soc_fp = clean(unary_union([emap.drawn.buffer(3.0), inside_zones.buffer(2.0)])) if emap is not None else None
     for f in faces:
         land = f.difference(surf).difference(nala_zone)
+        if cmed is not None:
+            land = land.difference(cmed.buffer(0.05))      # the centre median of a dual road is laid out on its own
         if soc_fp is not None:
             land = land.intersection(soc_fp)              # society land is what the plan draws
         for q in polys(land):
@@ -1627,7 +1765,8 @@ def main():
     with_free = [p for p in parcels if p["free"] is not None]
     ptree = STRtree([p["free"] for p in with_free])
     # what a plot may never cover: carriageways, the nalla, medians, strips and roundabout islands
-    Parts_hard = Parts([carriage.buffer(0.3), nala_zone] + [p["land"] for p in P if p["kind"] in ("median", "strip", "island")])
+    Parts_hard = Parts([carriage.buffer(0.3), nala_zone] + [p["land"] for p in P if p["kind"] in ("median", "strip", "island")]
+                       + ([cmed] if cmed is not None else []))
     cell_tree = STRtree([c["poly"] for c in cells])
     cand = []
     why = Counter()
@@ -2470,6 +2609,7 @@ def main():
             road_feats.append(feature(part, {"osm_id": d["id"], "name": d["name"] or ROAD_NAME.get(d["cls"]), "class": d["cls"],
                                              "width_m": round(WIDTH[d["cls"]], 1), "official_ft": OFFICIAL_FT.get(d["cls"]), "oneway": d["oneway"],
                                              "planned": bool(d.get("planned")),
+                                             **({"median_in": d["median_in"], "median_w": d["median_w"]} if "median_in" in d else {}),
                                              "source": d.get("source") or ("Official plan" if d.get("planned") else "OpenStreetMap"),
                                              "accuracy": "approximate" if d.get("planned") else "measured" if d.get("source") else "georeferenced"}))
     for l in planned_lines:
@@ -2491,6 +2631,8 @@ def main():
     if dividers is not None:
         div_new = clean(dividers.difference(medians.buffer(0.05)))
         medians = unary_union([medians, dividers])
+    if cmed is not None:
+        medians = unary_union([medians, cmed])
     verge = clean(inner_row.difference(inner_carriage.buffer(0.05)).difference(medians.buffer(0.05)).difference(nala.buffer(NALA_CH + 0.5)))
     verge = clean(verge.difference(unary_union([pg.buffer(0.1) for pg, _, _ in kept])))      # a plot wins over the verge beside it
     write(out, "road_surface",
@@ -2502,6 +2644,8 @@ def main():
     outer = clean(unary_union([big.intersection(outline.buffer(1500)), near]).difference(outline.buffer(-0.5)))
     if dividers is not None:
         outer = clean(outer.difference(dividers))
+    if cmed is not None:
+        outer = clean(outer.difference(cmed))
     write(out, "outer_roads", [feature(clean(q.simplify(0.3)), {"kind": "road", "accuracy": "approximate"}) for q in polys(outer) if q.area > 30])
     land_feats = []
     # (planned streets too: the plot ground must not cover any street)
@@ -2579,6 +2723,13 @@ def main():
                 n_sep += 1
     if n_sep:
         print(f"paved strips between the main road and its service roads outside the outline: {n_sep}")
+    for q in polys(cmed) if cmed is not None else []:
+        ax = [l for l in lines_of(med_axes.intersection(q.buffer(-0.2))) if l.length > 4]
+        width = round(q.area / max(sum(l.length for l in ax), 1.0), 1) if ax else 1.6
+        land_feats.append(feature(clean(q.simplify(0.1)), {"layer": "land", "kind": "median", "use": "centre median", "block": None, "size": None,
+                                                        "area_m2": round(q.area), "width_m": width, "accuracy": "approximate",
+                                                        "outside": not outline.contains(q.representative_point()),
+                                                        "axis": [geom_ll(l.simplify(0.3))["coordinates"] for l in ax]}))
     for q in polys(div_new) if div_new is not None else []:
         if q.area > 3:
             land_feats.append(feature(clean(q.simplify(0.1)), {"layer": "land", "kind": "strip", "use": "divider", "block": None, "size": None,
