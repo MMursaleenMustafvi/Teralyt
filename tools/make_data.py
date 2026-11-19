@@ -1562,11 +1562,14 @@ def main():
     cmed = None
     med_runs = []                                   # (axis LineString, median polygon, typical width)
 
+    MED_110 = 3.5                                   # the 110 ft road's median: one width all along (Google satellite: about 3 to 5 m)
+    fill_110 = []                                   # asphalt between a carriageway and the median where the two lines spread apart
+
     def med_polygon(run):
-        # a median of smoothly varying width along the run's axis (the gap of the 110 ft road changes along it)
-        xs = np.array([[x_, y_] for x_, y_, _ in run]); ws = np.array([w for _, _, w in run])
+        # a median along the run's axis: constant width, narrowed only where the carriageways come closer
+        xs = np.array([[r_[0], r_[1]] for r_ in run]); ws = np.array([r_[2] for r_ in run])
         k = 7
-        ws = np.array([np.median(ws[max(0, i - k):i + k + 1]) for i in range(len(ws))])
+        ws = np.array([min(ws[max(0, i - k):i + k + 1]) for i in range(len(ws))])
         sm = np.array([xs[max(0, i - 2):i + 3].mean(axis=0) for i in range(len(xs))])        # a straighter axis
         left, right = [], []
         for i in range(len(sm)):
@@ -1575,7 +1578,14 @@ def main():
             nx, ny = -dy / L_, dx / L_
             left.append((sm[i][0] + nx * ws[i] / 2, sm[i][1] + ny * ws[i] / 2))
             right.append((sm[i][0] - nx * ws[i] / 2, sm[i][1] - ny * ws[i] / 2))
-        return LineString([tuple(q) for q in sm]), clean(Polygon(left + right[::-1])), float(np.median(ws))
+        pg = clean(Polygon(left + right[::-1]))
+        if len(run[0]) > 3:                          # 110 ft: never on a lane; the space left over is paved
+            between = clean(Polygon([(r_[3], r_[4]) for r_ in run] + [(r_[5], r_[6]) for r_ in run][::-1]))
+            pg = clean(pg.difference(core110))
+            fill_110.append(clean(between.difference(pg)))
+        return LineString([tuple(q) for q in sm]), pg, float(np.median(ws))
+
+    core110 = unary_union([d["line"].buffer(WIDTH["road110"] / 2 + 0.3, cap_style=2, join_style=2) for d in roads if d["cls"] == "road110"])         if any(d["cls"] == "road110" for d in roads) else Polygon()
 
     for cls_ in ("divider_half", "road110"):
         pool = [d for d in roads if d["cls"] == cls_]
@@ -1593,13 +1603,14 @@ def main():
                     flush_m()
                     continue
                 dist, e, q, _ = tw
-                w_ = MED_THIN if cls_ == "divider_half" else max(MED_THIN, dist - WIDTH[cls_])
-                gaps.append(dist / 2 - w_ / 2)          # from this line to the median's edge
+                w_ = MED_THIN if cls_ == "divider_half" else max(MED_THIN, min(MED_110, dist - WIDTH[cls_] - 0.6))
+                # from this line to the median's edge (110 ft: the lanes stay on the line's own 7.5 m carriageway)
+                gaps.append(dist / 2 - w_ / 2 if cls_ == "divider_half" else min(dist / 2 - w_ / 2, WIDTH[cls_] / 2))
                 widths_.append(w_)
                 if pool.index(e) < i_d:                  # each median is laid out once, from one line of the pair
                     flush_m()
                     continue
-                run.append(((p.x + q.x) / 2, (p.y + q.y) / 2, w_))
+                run.append(((p.x + q.x) / 2, (p.y + q.y) / 2, w_) + ((p.x, p.y, q.x, q.y) if cls_ == "road110" else ()))
             flush_m()
             if gaps:
                 d["median_in"] = round(float(np.median(gaps)), 2)
@@ -1644,6 +1655,10 @@ def main():
         cmed = clean(unary_union([q for q in polys(cmed) if q.area > 6 and not q.buffer(-0.3).is_empty
                                   and max(math.dist(*list(q.minimum_rotated_rectangle.exterior.coords)[i:i + 2]) for i in range(2)) >= 12]))
         med_axes = unary_union([axis for axis, _, _ in med_runs])
+        if fill_110:
+            fill = clean(unary_union(fill_110).difference(cmed.buffer(0.05)))
+            carriage = clean(unary_union([carriage, fill]))
+            surf = clean(unary_union([surf, fill]))
         carriage = clean(carriage.difference(cmed))
         print(f"centre medians of the dual roads: {len(polys(cmed))} pieces, {sum(q.length for q in polys(cmed)) / 2 / 1000:.1f} km, "
               f"{len(cuts)} openings where a street crosses")
