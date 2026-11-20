@@ -1,5 +1,5 @@
 # Terralyt
-## Geospatial Intelligence Platform for Housing Societies
+## Geospatial Intelligence Platform for Housing Societies 
 
 Terralyt is a proposed web-based geospatial intelligence platform designed to help property buyers, investors, and overseas Pakistanis evaluate housing societies in Pakistan using satellite imagery, geospatial analysis, machine learning, and interactive 3D visualization.
 
