@@ -373,15 +373,17 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     for (const f of of('nala_tree')) { const [e, n] = P(...f.geometry.coordinates); trees[(Math.round(e * 3 + n) % 4) ? 'round' : 'palm'].push([e, Y.lawn, -n, .95]); }
     // bridge railings where roads cross the channel
     const parts = []; let railCut = 0;
+    const nl = (of('nala_line')[0] || { geometry: { coordinates: [] } }).geometry.coordinates.map(c => P(c[0], c[1]));
+    const overChannel = (x, y) => { for (let i = 0; i < nl.length - 1; i++) if (segDist(x, y, nl[i], nl[i + 1]) <= 3.25 + 2) return true; return false; };
     for (const f of of('bridge')) {
       const [e, n] = P(...f.geometry.coordinates), h = f.properties.heading * PI / 180, off = f.properties.road_width / 2 + .35, span = f.properties.span + 3;
       for (const s of [-1, 1]) {
-        // a railing never stands on a road: where a side street meets the road right at the channel, the railing
-        // stops at that street's edge (it used to run across the street's mouth)
+        // a railing stands only where the road passes over the channel (within 2 m of the channel's walls) and never on
+        // a road: where a side street meets the road right at the channel, it stops at that street's edge
         const at = t => [e + Math.cos(h) * t - Math.sin(h) * off * s, n + Math.sin(h) * t + Math.cos(h) * off * s];
         const runs = []; let r0 = null;
         for (let t = -span / 2; t <= span / 2 + 1e-6; t += .5) {
-          const [x, y] = at(t), ok = !onAsphalt(x, y, 0);
+          const [x, y] = at(t), ok = !onAsphalt(x, y, 0) && overChannel(x, y);   // over the channel and its walls, not on a road or verge
           if (ok && r0 == null) r0 = t;
           if ((!ok || t + .5 > span / 2 + 1e-6) && r0 != null) { const t1 = ok ? t : t - .5; if (t1 - r0 >= 2) runs.push([r0, t1]); r0 = null; }
         }
@@ -421,6 +423,31 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
       lines.push({ p, pts });
     }
     const mains = lines.filter(l => l.p.class === 'main');
+    // Junctions: a lane or edge line stops where it would run across another road's carriageway (a road crossing at
+    // an angle; parallel lines such as the other carriageway or the service road beside it do not count).
+    const JC = 40, jgrid = new Map(), jkey = (i, j) => i + ',' + j;
+    lines.forEach((l, li) => {
+      l.idx = li; if (l.p.class === 'highway') return;
+      const hw = (l.p.width_m || 5) / 2;
+      for (let i = 0; i < l.pts.length - 1; i++) {
+        const a = l.pts[i], b = l.pts[i + 1], r = hw + 1;
+        for (let gx = Math.floor((Math.min(a[0], b[0]) - r) / JC); gx <= Math.floor((Math.max(a[0], b[0]) + r) / JC); gx++)
+          for (let gy = Math.floor((Math.min(a[1], b[1]) - r) / JC); gy <= Math.floor((Math.max(a[1], b[1]) + r) / JC); gy++) {
+            const k = jkey(gx, gy); let c = jgrid.get(k); if (!c) jgrid.set(k, c = []); c.push({ li, a, b, hw });
+          }
+      }
+    });
+    let curLine = -1, junctionCut = 0;
+    const inJunction = (x, y, ux, uy) => {
+      const c = jgrid.get(jkey(Math.floor(x / JC), Math.floor(y / JC))); if (!c) return false;
+      for (const sg of c) {
+        if (sg.li === curLine) continue;
+        const dx = sg.b[0] - sg.a[0], dy = sg.b[1] - sg.a[1], L = Math.hypot(dx, dy) || 1;
+        if (Math.abs((dx * ux + dy * uy) / L) > .85) continue;
+        if (segDist(x, y, sg.a, sg.b) < sg.hw + .3) return true;
+      }
+      return false;
+    };
     const stripe = (pts, off, dash, gap, w) => {
       let carry = 0, on = true;
       for (let i = 0; i < pts.length - 1; i++) {
@@ -429,7 +456,11 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         let s = 0;
         while (s < L) {
           const left = (on ? dash : gap) - carry, e = Math.min(L, s + left);
-          if (on && e - s > .05) { const o = [a[0] + nx * off, a[1] + ny * off]; quads.push([o[0] + ux * s, o[1] + uy * s, o[0] + ux * e, o[1] + uy * e, nx * w / 2, ny * w / 2]); }
+          if (on && e - s > .05) {
+            const o = [a[0] + nx * off, a[1] + ny * off], m = (s + e) / 2;
+            if (inJunction(o[0] + ux * m, o[1] + uy * m, ux, uy)) junctionCut++;
+            else quads.push([o[0] + ux * s, o[1] + uy * s, o[0] + ux * e, o[1] + uy * e, nx * w / 2, ny * w / 2]);
+          }
           carry += e - s; s = e; if (carry >= (on ? dash : gap) - 1e-6) { carry = 0; on = gap === 0 ? true : !on; }
         }
       }
@@ -452,6 +483,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     const svcs = lines.filter(l => l.p.class === 'service');
     const onService = (x, y) => { for (const s of svcs) { const hw = (s.p.width_m || 7.5) / 2 + .6; for (let i = 0; i < s.pts.length - 1; i++) if (segDist(x, y, s.pts[i], s.pts[i + 1]) < hw) return true; } return false; };
     for (const l of lines) {
+      curLine = l.idx;
       const w = l.p.width_m || 12, cls = l.p.class;
       if (cls === 'service') {
         // one-way, two lanes: dashed lane line and solid edge lines, like the main carriageway beside it
@@ -497,6 +529,7 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
         along(l.pts, 46, 12, (x, y, ux, uy, t) => { const s = Math.round(t / 46) % 2 ? 1 : -1, off = s * (w / 2 + .8), px = x - uy * off, py = y + ux * off; if (inB(px, py)) lamps.street.push([px, Y.verge, -py, Math.atan2(-(s * ux), s * uy) + PI]); });
       }
     }
+    api.markingsCutAtJunctions = junctionCut;   // marking pieces left out inside junctions (checked in tests)
     // stripes -> one mesh
     const pos = new Float32Array(quads.length * 18), nor = new Float32Array(quads.length * 18), uv = new Float32Array(quads.length * 12);
     quads.forEach((q, i) => {
