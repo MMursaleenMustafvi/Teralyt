@@ -2385,7 +2385,8 @@ def main():
     bfeats = []
     road_all = unary_union([carriage] + ([new_carriage] if new_carriage is not None else [])
                            + [clean(q.buffer(-(ROW["planned"] - WIDTH["planned"]) / 2, join_style=2)) for q in planned_streets])
-    n_road = n_split = n_trim = 0
+    n_road = n_split = n_trim = n_noplot = 0
+    noplot_m2 = 0.0
     btaken = []
     for g, pr in sorted(bld, key=lambda t: -t[0].area):
         if any(g.intersection(o).area > 0.5 * g.area for o in btaken if o.intersects(g)):
@@ -2401,15 +2402,15 @@ def main():
         storeys = 1 if g.area < 70 else 2 if g.area < 420 else 3
         base = {"area_m2": round(g.area), "storeys": storeys, "height": round(3.5 * storeys, 1), "height_source": "assumed",
                 "dataset": pr.get("dataset"), "source": BUILT_SOURCE, "accuracy": "georeferenced"}
-        if not cover or cover[0][0] < max(20.0, 0.1 * kept[cover[0][1]][0].area):
-            # on no plot (open land, a verge, village houses on land the plan has not laid out yet): drawn as it
-            # stands, but kept off the plots it touches
-            rest = g
-            if cover:
-                rest = largest(clean(g.difference(unary_union([kept[i][0].buffer(0.35, join_style=2) for _, i in cover]))))
-            rect = inscribed_rect(rest, obb(rest)["angle"]) if rest is not None and rest.area >= 12 else None
-            if rect is not None:
-                bfeats.append((clean(rest.simplify(0.1)), dict(base, id=len(bfeats) + 1, plot_index=None, obb=rect)))
+        # A house is drawn only on a plot. A footprint stands on a plot when it covers a good part of it (20 m2 and a
+        # tenth of the plot) or when most of the footprint lies on it (a small house or annexe on a big plot).
+        # Footprints on no plot (on a verge or a road the plan draws, on open land the plan has not laid out) are not
+        # drawn: a house beside the plots, on a verge or in a park would be wrong in the model.
+        on_plot = bool(cover) and (cover[0][0] >= max(20.0, 0.1 * kept[cover[0][1]][0].area)
+                                   or cover[0][0] >= max(12.0, 0.6 * g.area))
+        if not on_plot:
+            n_noplot += 1
+            noplot_m2 += g.area
             continue
         # A footprint rarely matches the plot lines exactly. Where it covers a good part of a neighbouring plot too
         # (at least 30 m2 and a fifth of that plot), the house was built across both plots: both are built, and the
@@ -2430,7 +2431,8 @@ def main():
             bfeats.append((clean(piece.simplify(0.1)), dict(base, id=len(bfeats) + 1, plot_index=i, obb=rect, area_m2=round(piece.area),
                                                             footprint_m2=round(g.area), split=len(on_plots) > 1 or None)))
     print(f"buildings standing today: {len(bfeats)} houses (from footprints), on {len(built_on)} plots; {n_split} footprints span two or more plots "
-          f"(split at the plot line, each plot built); {n_trim} poked over a plot line and were trimmed; {n_road} left out because they lie on a mapped road")
+          f"(split at the plot line, each plot built); {n_trim} poked over a plot line and were trimmed; {n_road} left out because they lie on a mapped road; "
+          f"{n_noplot} not drawn because they stand on no plot ({noplot_m2:.0f} m2: verges, open land)")
     # development around each plot: share of built plots within 150 m
     cen = np.array([[pg.centroid.x, pg.centroid.y] for pg, _, _ in kept]) if kept else np.zeros((0, 2))
     is_built = np.array([i in built_on for i in range(len(kept))])
@@ -2552,6 +2554,14 @@ def main():
     cut = carriage.buffer(0.6)
     channel = nala.buffer(NALA_CH, cap_style=2)
     wall = nala.buffer(NALA_CH + 0.45, cap_style=2).difference(nala.buffer(NALA_CH - 0.05, cap_style=2))
+    # Small unpaved holes left inside the carriageway where roads join (a scrap of verge or nalla bank in the middle of
+    # a junction, not a median, divider or roundabout island) are paved.
+    keep_ = unary_union([p["land"] for p in P if p["kind"] in ("median", "strip", "island")]
+                        + ([dividers] if dividers is not None else []) + ([cmed] if cmed is not None else []))
+    fill_ = [h for q in polys(carriage) for h in map(Polygon, q.interiors) if h.area < 60 and h.intersection(keep_).area < 0.5 * h.area]
+    if fill_:
+        carriage = clean(unary_union([carriage] + fill_))
+        print(f"small unpaved holes inside junctions paved: {len(fill_)} ({sum(h.area for h in fill_):.0f} m2)")
     bank = nala.buffer(NALA_BANK, cap_style=2).difference(nala.buffer(NALA_CH + 0.45, cap_style=2)).difference(carriage)
     for kind, geom, amin, tol in (("nala_water", channel.difference(cut), 5, 0.15), ("nala_wall", wall.difference(cut), 1, 0.1), ("nala_bank", bank, 5, 0.2)):
         for q in polys(clean(geom)):
