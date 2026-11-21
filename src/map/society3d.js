@@ -372,15 +372,28 @@ const isLand = isLandF, isInner = f => f.properties.layer === 'inner';
     const wat = addMesh(flatGeom(of('nala_water'), .1), M.nalaWater);
     for (const f of of('nala_tree')) { const [e, n] = P(...f.geometry.coordinates); trees[(Math.round(e * 3 + n) % 4) ? 'round' : 'palm'].push([e, Y.lawn, -n, .95]); }
     // bridge railings where roads cross the channel
-    const parts = [];
+    const parts = []; let railCut = 0;
     for (const f of of('bridge')) {
       const [e, n] = P(...f.geometry.coordinates), h = f.properties.heading * PI / 180, off = f.properties.road_width / 2 + .35, span = f.properties.span + 3;
       for (const s of [-1, 1]) {
-        const g = new THREE.BoxGeometry(span, 1.0, .35).translate(0, Y.road + .5, 0); g.rotateY(h);
-        g.translate(e - Math.sin(h) * off * s, 0, -(n + Math.cos(h) * off * s)); parts.push(g.toNonIndexed());
-        for (const t of [-span / 2, span / 2]) { const pgeo = new THREE.BoxGeometry(.6, 1.3, .6).translate(0, Y.road + .65, 0); pgeo.translate(e + Math.cos(h) * t - Math.sin(h) * off * s, 0, -(n + Math.sin(h) * t + Math.cos(h) * off * s)); parts.push(pgeo.toNonIndexed()); }
+        // a railing never stands on a road: where a side street meets the road right at the channel, the railing
+        // stops at that street's edge (it used to run across the street's mouth)
+        const at = t => [e + Math.cos(h) * t - Math.sin(h) * off * s, n + Math.sin(h) * t + Math.cos(h) * off * s];
+        const runs = []; let r0 = null;
+        for (let t = -span / 2; t <= span / 2 + 1e-6; t += .5) {
+          const [x, y] = at(t), ok = !onAsphalt(x, y, 0);
+          if (ok && r0 == null) r0 = t;
+          if ((!ok || t + .5 > span / 2 + 1e-6) && r0 != null) { const t1 = ok ? t : t - .5; if (t1 - r0 >= 2) runs.push([r0, t1]); r0 = null; }
+        }
+        if (runs.length !== 1 || runs[0][1] - runs[0][0] < span - .6) railCut++;
+        for (const [t0, t1] of runs) {
+          const len = t1 - t0, [cx, cy] = at((t0 + t1) / 2);
+          const g = new THREE.BoxGeometry(len, 1.0, .35).translate(0, Y.road + .5, 0); g.rotateY(h); g.translate(cx, 0, -cy); parts.push(g.toNonIndexed());
+          for (const t of [t0, t1]) { const [px, py] = at(t), pgeo = new THREE.BoxGeometry(.6, 1.3, .6).translate(px, Y.road + .65, -py); parts.push(pgeo.toNonIndexed()); }
+        }
       }
     }
+    api.railingsShortened = railCut;           // railings stopped at a side street's edge (checked in tests)
     const rails = parts.length ? addMesh(mergeGeometries(parts), M.cream, { cast: true }) : null;
     const line = of('nala_line')[0];
     const id = 9001, mid = line ? line.geometry.coordinates[Math.floor(line.geometry.coordinates.length * .45)] : null;
